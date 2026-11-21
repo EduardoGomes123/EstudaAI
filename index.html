@@ -538,7 +538,7 @@ function renderMateriais() {
 
 /* ---------- biblioteca pronta ---------- */
 let biblioteca = null, serieBib = null;
-const ICONES = { "Matemática": "➗", "Português": "✍️", "Ciências": "🔬", "História": "🏛️", "Geografia": "🌎", "Inglês": "🇬🇧" };
+const ICONES = { "Matemática": "➗", "Português": "✍️", "Ciências": "🔬", "Física": "🧲", "Química": "🧪", "Biologia": "🧬", "História": "🏛️", "Geografia": "🌎", "Inglês": "🇬🇧" };
 function iconeMateria(m) { return ICONES[m] || "🧠"; }
 async function renderBiblioteca() {
   const alvo = $("#biblioteca"); if (!alvo) return;

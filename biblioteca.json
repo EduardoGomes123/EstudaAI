@@ -1151,9 +1151,127 @@
    ]
   },
   {
-   "id": "cie9-atomo",
+   "id": "fis9-movimento",
+   "titulo": "Movimento e velocidade média",
+   "materia": "Física",
+   "serie": "9º ano",
+   "resumo": [
+    "Movimento e repouso dependem do referencial. Um passageiro sentado está em repouso em relação ao ônibus, mas em movimento em relação à rua.",
+    "Trajetória é o caminho percorrido pelo corpo, e ela também depende do referencial.",
+    "Velocidade média: vm = Δs ÷ Δt (distância percorrida dividida pelo tempo gasto). Ex.: 120 km em 2 h dá 60 km/h.",
+    "No Sistema Internacional (SI), a distância é medida em metros (m), o tempo em segundos (s) e a velocidade em m/s.",
+    "Conversão: de m/s para km/h, multiplique por 3,6; de km/h para m/s, divida por 3,6. Ex.: 72 km/h = 20 m/s.",
+    "Movimento uniforme (MU): a velocidade é constante, e o corpo percorre distâncias iguais em tempos iguais. Função horária: s = s₀ + v · t.",
+    "Movimento progressivo: a posição aumenta (v > 0). Movimento retrógrado: a posição diminui (v < 0).",
+    "Aceleração média: a = Δv ÷ Δt, medida em m/s². Ex.: ir de 0 a 20 m/s em 5 s dá uma aceleração de 4 m/s²."
+   ],
+   "flashcards": [
+    {
+     "frente": "Fórmula da velocidade média",
+     "verso": "vm = Δs ÷ Δt"
+    },
+    {
+     "frente": "Quanto é 36 km/h em m/s?",
+     "verso": "10 m/s (36 ÷ 3,6)"
+    },
+    {
+     "frente": "Quanto é 10 m/s em km/h?",
+     "verso": "36 km/h (10 × 3,6)"
+    },
+    {
+     "frente": "O que é referencial?",
+     "verso": "O corpo ou lugar usado para dizer se algo está parado ou em movimento"
+    },
+    {
+     "frente": "O que é movimento uniforme?",
+     "verso": "Movimento com velocidade constante"
+    },
+    {
+     "frente": "Função horária do MU",
+     "verso": "s = s₀ + v · t"
+    },
+    {
+     "frente": "Fórmula da aceleração média",
+     "verso": "a = Δv ÷ Δt"
+    },
+    {
+     "frente": "Unidade de velocidade no SI",
+     "verso": "m/s (metro por segundo)"
+    }
+   ],
+   "quiz": [
+    {
+     "pergunta": "Um carro percorre 180 km em 3 horas. Qual foi a velocidade média?",
+     "opcoes": [
+      "60 km/h",
+      "540 km/h",
+      "90 km/h",
+      "45 km/h"
+     ],
+     "correta": 0,
+     "explicacao": "vm = 180 ÷ 3 = 60 km/h."
+    },
+    {
+     "pergunta": "Quanto é 108 km/h em m/s?",
+     "opcoes": [
+      "30 m/s",
+      "388,8 m/s",
+      "10,8 m/s",
+      "18 m/s"
+     ],
+     "correta": 0,
+     "explicacao": "Para passar de km/h para m/s, divida por 3,6: 108 ÷ 3,6 = 30."
+    },
+    {
+     "pergunta": "Um passageiro está sentado num ônibus em movimento. Ele está:",
+     "opcoes": [
+      "Em repouso em relação ao ônibus",
+      "Em movimento em relação ao ônibus",
+      "Sempre em repouso",
+      "Sempre em movimento"
+     ],
+     "correta": 0,
+     "explicacao": "Em relação ao ônibus, a posição dele não muda. Em relação à rua, ele se move."
+    },
+    {
+     "pergunta": "Um corpo segue s = 10 + 5t (no SI). Qual é a posição em t = 4 s?",
+     "opcoes": [
+      "30 m",
+      "20 m",
+      "15 m",
+      "50 m"
+     ],
+     "correta": 0,
+     "explicacao": "s = 10 + 5 · 4 = 10 + 20 = 30 m."
+    },
+    {
+     "pergunta": "Uma moto vai de 0 a 30 m/s em 6 s. Qual é a aceleração média?",
+     "opcoes": [
+      "5 m/s²",
+      "180 m/s²",
+      "36 m/s²",
+      "0,2 m/s²"
+     ],
+     "correta": 0,
+     "explicacao": "a = Δv ÷ Δt = 30 ÷ 6 = 5 m/s²."
+    },
+    {
+     "pergunta": "Um atleta corre 100 m em 10 s. Qual é a velocidade média?",
+     "opcoes": [
+      "10 m/s",
+      "1 m/s",
+      "100 m/s",
+      "1000 m/s"
+     ],
+     "correta": 0,
+     "explicacao": "vm = 100 ÷ 10 = 10 m/s, o que equivale a 36 km/h."
+    }
+   ]
+  },
+  {
+   "id": "qui9-atomo",
    "titulo": "O átomo e os modelos atômicos",
-   "materia": "Ciências",
+   "materia": "Química",
    "serie": "9º ano",
    "resumo": [
     "Toda matéria é formada por átomos. Elemento químico é o conjunto de átomos com o mesmo número de prótons (número atômico, Z).",
@@ -1266,6 +1384,124 @@
      ],
      "correta": 0,
      "explicacao": "O sinal + indica que ele perdeu 1 elétron: 11 − 1 = 10."
+    }
+   ]
+  },
+  {
+   "id": "bio9-genetica",
+   "titulo": "Hereditariedade e genética",
+   "materia": "Biologia",
+   "serie": "9º ano",
+   "resumo": [
+    "Hereditariedade é a transmissão de características dos pais para os filhos.",
+    "O DNA é a molécula que guarda as informações genéticas. Ele fica no núcleo das células, organizado em cromossomos.",
+    "Gene é um trecho do DNA com a informação para uma característica.",
+    "As células do corpo humano têm 46 cromossomos (23 pares). Os gametas (óvulo e espermatozoide) têm 23. Na fecundação, 23 + 23 = 46.",
+    "Alelos são versões de um mesmo gene. O dominante (letra maiúscula, A) aparece mesmo com uma cópia só; o recessivo (a) só aparece em dose dupla (aa).",
+    "Genótipo é a composição genética (AA, Aa ou aa). Fenótipo é a característica que aparece, resultado do genótipo e do ambiente.",
+    "Homozigoto tem dois alelos iguais (AA ou aa). Heterozigoto tem alelos diferentes (Aa).",
+    "Mendel, estudando ervilhas, descobriu as leis da herança. No cruzamento Aa × Aa, os filhos ficam 1 AA : 2 Aa : 1 aa, ou seja, 3/4 com o fenótipo dominante e 1/4 com o recessivo."
+   ],
+   "flashcards": [
+    {
+     "frente": "O que é hereditariedade?",
+     "verso": "A transmissão de características dos pais para os filhos"
+    },
+    {
+     "frente": "O que é um gene?",
+     "verso": "Um trecho do DNA com a informação de uma característica"
+    },
+    {
+     "frente": "Quantos cromossomos tem uma célula do corpo humano?",
+     "verso": "46 (23 pares)"
+    },
+    {
+     "frente": "Quantos cromossomos tem um gameta humano?",
+     "verso": "23"
+    },
+    {
+     "frente": "O que é genótipo?",
+     "verso": "A composição genética (ex.: Aa)"
+    },
+    {
+     "frente": "O que é fenótipo?",
+     "verso": "A característica que aparece (genótipo + ambiente)"
+    },
+    {
+     "frente": "O que é um heterozigoto?",
+     "verso": "Um indivíduo com dois alelos diferentes (Aa)"
+    },
+    {
+     "frente": "Quem é considerado o pai da genética?",
+     "verso": "Gregor Mendel"
+    }
+   ],
+   "quiz": [
+    {
+     "pergunta": "Quantos cromossomos tem um espermatozoide humano?",
+     "opcoes": [
+      "23",
+      "46",
+      "92",
+      "22"
+     ],
+     "correta": 0,
+     "explicacao": "Gametas têm metade dos cromossomos: 23. Na fecundação, 23 + 23 = 46."
+    },
+    {
+     "pergunta": "Qual genótipo é heterozigoto?",
+     "opcoes": [
+      "AA",
+      "Aa",
+      "aa",
+      "A"
+     ],
+     "correta": 1,
+     "explicacao": "Heterozigoto tem dois alelos diferentes: um dominante (A) e um recessivo (a)."
+    },
+    {
+     "pergunta": "No cruzamento Aa × Aa, qual é a probabilidade de um filho aa?",
+     "opcoes": [
+      "1/4",
+      "1/2",
+      "3/4",
+      "0"
+     ],
+     "correta": 0,
+     "explicacao": "Os filhos ficam 1 AA : 2 Aa : 1 aa. Só 1 em 4 é aa."
+    },
+    {
+     "pergunta": "O que é fenótipo?",
+     "opcoes": [
+      "A característica que aparece no indivíduo",
+      "O conjunto de genes",
+      "Um cromossomo",
+      "Um alelo recessivo"
+     ],
+     "correta": 0,
+     "explicacao": "Fenótipo é o que se observa, como a cor dos olhos, e depende do genótipo e do ambiente."
+    },
+    {
+     "pergunta": "Quem é considerado o pai da genética?",
+     "opcoes": [
+      "Darwin",
+      "Mendel",
+      "Pasteur",
+      "Lamarck"
+     ],
+     "correta": 1,
+     "explicacao": "Mendel fez os experimentos com ervilhas que revelaram as leis da herança."
+    },
+    {
+     "pergunta": "Do cruzamento AA × aa, como serão os filhos?",
+     "opcoes": [
+      "100% Aa",
+      "50% AA",
+      "25% aa",
+      "100% aa"
+     ],
+     "correta": 0,
+     "explicacao": "Um pai só passa A e o outro só passa a, então todos os filhos são Aa."
     }
    ]
   },
