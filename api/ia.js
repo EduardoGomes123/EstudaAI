@@ -35,6 +35,23 @@ Responda SOMENTE com JSON neste formato:
 {"tarefas":[{"tipo":"prova","materia":"","titulo":"","data":"AAAA-MM-DD","detalhes":""}],"aviso":""}`;
 }
 
+function promptHorario() {
+  return `Você lê a foto do horário de aulas (grade horária) de um estudante brasileiro do ensino fundamental ou médio.
+
+Para cada dia da semana que aparece, extraia:
+- "inicio": horário de início da primeira aula (HH:MM, 24h)
+- "fim": horário de término da última aula (HH:MM, 24h)
+- "materias": as matérias do dia, sem repetir, na ordem em que aparecem
+
+Use nomes padronizados: Matemática, Português, Redação, Ciências, Física, Química, Biologia, História, Geografia, Inglês, Espanhol, Artes, Educação Física, Filosofia, Sociologia, Ensino Religioso. Ignore intervalo/recreio.
+Se os horários não aparecerem, use null. Não invente.
+Chaves dos dias: "seg", "ter", "qua", "qui", "sex", "sab". Omita os dias sem aula.
+Se a imagem não for um horário escolar, responda {"dias":{},"aviso":"explicação curta"}.
+
+Responda SOMENTE com JSON neste formato:
+{"dias":{"seg":{"inicio":"07:00","fim":"12:20","materias":["Matemática","Português"]}},"aviso":""}`;
+}
+
 function promptEstudo({ materia, assunto }) {
   return `Você é um professor particular paciente que ajuda um estudante brasileiro do ensino fundamental ou médio a estudar para a prova.
 As fotos são páginas do caderno ou do livro dele.${materia ? `\nMatéria: ${materia}.` : ""}${assunto ? `\nA prova/atividade é: ${assunto}.` : ""}
@@ -97,7 +114,7 @@ module.exports = async (req, res) => {
   if (typeof dados === "string") { try { dados = JSON.parse(dados); } catch { return resposta(400, { erro: "Pedido inválido." }); } }
 
   const { modo, fotos, hoje, materia, assunto } = dados || {};
-  if (!["agenda", "estudo"].includes(modo)) return resposta(400, { erro: "Modo inválido." });
+  if (!["agenda", "estudo", "horario"].includes(modo)) return resposta(400, { erro: "Modo inválido." });
   if (!Array.isArray(fotos) || fotos.length === 0) return resposta(400, { erro: "Envie pelo menos uma foto." });
   if (fotos.length > MAX_FOTOS) return resposta(400, { erro: `Envie no máximo ${MAX_FOTOS} fotos.` });
 
@@ -113,6 +130,8 @@ module.exports = async (req, res) => {
   const dataHoje = /^\d{4}-\d{2}-\d{2}$/.test(hoje || "") ? hoje : new Date().toISOString().slice(0, 10);
   const texto = modo === "agenda"
     ? promptAgenda(dataHoje)
+    : modo === "horario"
+    ? promptHorario()
     : promptEstudo({ materia: String(materia || "").slice(0, 60), assunto: String(assunto || "").slice(0, 200) });
 
   const partes = [

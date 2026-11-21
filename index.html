@@ -72,7 +72,7 @@
   .vazio .em{font-size:40px}
   nav{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.96);backdrop-filter:blur(10px);border-top:1px solid var(--borda);padding:8px 16px calc(8px + env(safe-area-inset-bottom));z-index:10}
   nav .in{max-width:560px;margin:0 auto;display:flex;gap:8px}
-  nav button{flex:1;border:0;background:transparent;border-radius:14px;padding:8px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:13px;font-weight:700;color:var(--suave)}
+  nav button{flex:1;min-width:0;border:0;background:transparent;border-radius:14px;padding:8px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:13px;font-weight:700;color:var(--suave)}
   nav button .i{font-size:22px}
   nav button.ativo{background:var(--roxo-claro);color:var(--roxo)}
   .material{display:flex;gap:12px;align-items:center}
@@ -85,7 +85,7 @@
   .fotos .x{position:absolute;top:4px;right:4px;width:26px;height:26px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:14px}
   .fotos .add{border:2px dashed var(--borda);display:grid;place-items:center;color:var(--suave);font-weight:700;font-size:13px;background:#fff;text-align:center;padding:6px}
   label.campo{display:block;font-size:13px;font-weight:700;color:var(--suave);margin:10px 0 4px}
-  input[type=text],input[type=date],select,textarea{width:100%;border:1px solid var(--borda);border-radius:12px;padding:11px 12px;background:#fff}
+  input[type=text],input[type=date],input[type=time],select,textarea{width:100%;border:1px solid var(--borda);border-radius:12px;padding:11px 12px;background:#fff}
   textarea{resize:vertical;min-height:60px}
   /* modal */
   .modal{position:fixed;inset:0;background:rgba(20,16,40,.45);z-index:50;display:flex;align-items:flex-end;justify-content:center}
@@ -146,6 +146,9 @@
     <div id="listaTarefas"></div>
   </section>
 
+  <!-- ================= CRONOGRAMA ================= -->
+  <section id="telaCrono" class="oculto"><div id="conteudoCrono"></div></section>
+
   <!-- ================= ESTUDAR ================= -->
   <section id="telaEstudar" class="oculto">
     <div class="hero">
@@ -160,6 +163,7 @@
 <nav>
   <div class="in">
     <button id="navAgenda" class="ativo"><span class="i">🗓️</span>Agenda</button>
+    <button id="navCrono"><span class="i">⏰</span>Cronograma</button>
     <button id="navEstudar"><span class="i">🧠</span>Estudar</button>
   </div>
 </nav>
@@ -167,6 +171,7 @@
 <input type="file" id="arquivoAgenda" accept="image/*" capture="environment" class="oculto">
 <input type="file" id="arquivoEstudo" accept="image/*" multiple class="oculto">
 <input type="file" id="arquivoEstudoCamera" accept="image/*" capture="environment" class="oculto">
+<input type="file" id="arquivoHorario" accept="image/*" class="oculto">
 
 <div id="camadaModal"></div>
 
@@ -184,8 +189,11 @@ const MATERIAS = ["Matemática","Português","História","Geografia","Ciências"
 
 /* ---------- armazenamento ---------- */
 function carregar() {
-  try { const d = JSON.parse(localStorage.getItem(CHAVE)); if (d && d.tarefas && d.materiais) return d; } catch (e) {}
-  return { tarefas: [], materiais: [] };
+  try {
+    const d = JSON.parse(localStorage.getItem(CHAVE));
+    if (d && d.tarefas && d.materiais) { d.feitosCrono = d.feitosCrono || {}; d.rotina = d.rotina || null; return d; }
+  } catch (e) {}
+  return { tarefas: [], materiais: [], rotina: null, feitosCrono: {} };
 }
 let estado = carregar();
 function salvar() {
@@ -281,14 +289,17 @@ function fecharModal() { $("#camadaModal").innerHTML = ""; document.body.style.o
    NAVEGAÇÃO
    ============================================================ */
 function irPara(tela) {
-  $("#telaAgenda").classList.toggle("oculto", tela !== "agenda");
-  $("#telaEstudar").classList.toggle("oculto", tela !== "estudar");
-  $("#navAgenda").classList.toggle("ativo", tela === "agenda");
-  $("#navEstudar").classList.toggle("ativo", tela === "estudar");
+  for (const [t, sec, nav] of [["agenda", "#telaAgenda", "#navAgenda"], ["crono", "#telaCrono", "#navCrono"], ["estudar", "#telaEstudar", "#navEstudar"]]) {
+    $(sec).classList.toggle("oculto", tela !== t);
+    $(nav).classList.toggle("ativo", tela === t);
+  }
   window.scrollTo(0, 0);
-  tela === "agenda" ? renderAgenda() : renderMateriais();
+  if (tela === "agenda") renderAgenda();
+  if (tela === "crono") renderCronograma();
+  if (tela === "estudar") renderMateriais();
 }
 $("#navAgenda").onclick = () => irPara("agenda");
+$("#navCrono").onclick = () => irPara("crono");
 $("#navEstudar").onclick = () => irPara("estudar");
 
 /* ============================================================
@@ -373,12 +384,14 @@ $("#listaTarefas").addEventListener("click", (ev) => {
   }
   if (acao === "lembrete") baixarLembrete(t);
   if (acao === "editar") editarTarefa(t);
-  if (acao === "estudar") {
-    const m = estado.materiais.find((x) => x.tarefaId === t.id);
-    if (m) { irPara("estudar"); abrirMaterial(m.id); }
-    else { irPara("estudar"); novoEstudo(t); }
-  }
+  if (acao === "estudar") estudarTarefa(t);
 });
+
+function estudarTarefa(t) {
+  const m = estado.materiais.find((x) => x.tarefaId === t.id);
+  irPara("estudar");
+  if (m) abrirMaterial(m.id); else novoEstudo(t);
+}
 
 /* foto -> tarefas */
 $("#btnFotoAgenda").onclick = () => $("#arquivoAgenda").click();
@@ -519,63 +532,27 @@ function renderMateriais() {
   if (!estado.materiais.length) {
     html = `
       <div class="vazio" style="padding-bottom:6px"><div class="em">📖</div>
-        <p>Nenhum material seu ainda.<br>Fotografe até 6 páginas do caderno, ou comece pela biblioteca pronta abaixo.</p>
+        <p>Nenhum material ainda.<br>Fotografe até 6 páginas do caderno sobre o assunto da prova.</p>
       </div>`;
   } else {
     const lista = [...estado.materiais].sort((a, b) => b.criado - a.criado);
     html = `<h3>Seus materiais</h3><div class="lista">${lista.map((m) => {
       const t = estado.tarefas.find((x) => x.id === m.tarefaId);
-      const sub = [m.materia, m.serie, t && t.data ? `${TIPOS[t.tipo]} ${textoQuando(t.data).toLowerCase()}` : null, m.melhorNota != null ? `melhor nota: ${m.melhorNota}%` : null].filter(Boolean).join(" · ");
+      const sub = [m.materia, t && t.data ? `${TIPOS[t.tipo]} ${textoQuando(t.data).toLowerCase()}` : null, m.melhorNota != null ? `melhor nota: ${m.melhorNota}%` : null].filter(Boolean).join(" · ");
       return `<button class="card material" data-mat="${m.id}" style="text-align:left;width:100%">
         <div class="icone">${m.melhorNota >= 80 ? "🏆" : iconeMateria(m.materia)}</div>
         <div class="corpo"><div class="t">${esc(m.titulo)}</div><div class="pequeno">${esc(sub)}</div></div>
         <div style="color:var(--suave)">›</div></button>`;
     }).join("")}</div>`;
   }
-  $("#listaMateriais").innerHTML = html + `<div id="biblioteca"></div>`;
-  renderBiblioteca();
+  $("#listaMateriais").innerHTML = html;
 }
 
-/* ---------- biblioteca pronta ---------- */
-let biblioteca = null, serieBib = null;
-const ICONES = { "Matemática": "➗", "Português": "✍️", "Ciências": "🔬", "Física": "🧲", "Química": "🧪", "Biologia": "🧬", "História": "🏛️", "Geografia": "🌎", "Inglês": "🇬🇧" };
+const ICONES = { "Matemática": "➗", "Português": "✍️", "Ciências": "🔬", "Física": "🧲", "Química": "🧪", "Biologia": "🧬", "História": "🏛️", "Geografia": "🌎", "Inglês": "🇬🇧", "Espanhol": "🇪🇸", "Redação": "📝", "Artes": "🎨", "Educação Física": "⚽", "Filosofia": "💭", "Sociologia": "👥" };
 function iconeMateria(m) { return ICONES[m] || "🧠"; }
-async function renderBiblioteca() {
-  const alvo = $("#biblioteca"); if (!alvo) return;
-  if (!biblioteca) {
-    try { biblioteca = (await (await fetch("biblioteca.json")).json()).materiais || []; }
-    catch (e) { biblioteca = []; }
-  }
-  if (!biblioteca.length || !$("#biblioteca")) return;
-  const series = [...new Set(biblioteca.map((b) => b.serie))];
-  if (!series.includes(serieBib)) serieBib = series[series.length - 1];
-  const itens = biblioteca.filter((b) => b.serie === serieBib);
-  $("#biblioteca").innerHTML = `
-    <h3>📚 Biblioteca pronta</h3>
-    <div class="abas" style="margin-top:0">${series.map((x) => `<button data-serie="${esc(x)}" class="${x === serieBib ? "ativo" : ""}">${esc(x)}</button>`).join("")}</div>
-    <div class="lista">${itens.map((b) => {
-      const ja = estado.materiais.find((m) => m.bibId === b.id);
-      return `<button class="card material" data-bib="${b.id}" style="text-align:left;width:100%">
-        <div class="icone">${iconeMateria(b.materia)}</div>
-        <div class="corpo"><div class="t">${esc(b.titulo)}</div>
-          <div class="pequeno">${esc(b.materia)} · ${b.flashcards.length} flashcards · ${b.quiz.length} questões${ja ? " · ✓ nos seus materiais" : ""}</div></div>
-        <div style="color:var(--suave)">›</div></button>`;
-    }).join("")}</div>`;
-}
-function abrirDaBiblioteca(id) {
-  const ja = estado.materiais.find((m) => m.bibId === id);
-  if (ja) { abrirMaterial(ja.id); return; }
-  const b = biblioteca.find((x) => x.id === id); if (!b) return;
-  const novo = JSON.parse(JSON.stringify(b));
-  delete novo.id;
-  estado.materiais.push({ ...novo, id: novoId(), bibId: b.id, tarefaId: null, criado: Date.now(), melhorNota: null });
-  salvar(); renderMateriais(); abrirMaterial(estado.materiais[estado.materiais.length - 1].id);
-}
 
 $("#listaMateriais").addEventListener("click", (ev) => {
   const b = ev.target.closest("[data-mat]"); if (b) return abrirMaterial(b.dataset.mat);
-  const bib = ev.target.closest("[data-bib]"); if (bib) return abrirDaBiblioteca(bib.dataset.bib);
-  const se = ev.target.closest("[data-serie]"); if (se) { serieBib = se.dataset.serie; renderBiblioteca(); }
 });
 
 $("#btnNovoEstudo").onclick = () => novoEstudo(null);
@@ -761,6 +738,383 @@ function rodarQuiz(m, c) {
     });
   };
   passo();
+}
+
+/* ============================================================
+   CRONOGRAMA — o aluno informa os horários e o app monta a semana
+   ============================================================ */
+const DIAS_SEM = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+const CHAVE_DIA = { seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, sab: 6 };
+const BASE_MATERIAS = ["Matemática", "Português", "Ciências", "História", "Geografia", "Inglês"];
+const toMin = (h) => { const [a, b] = String(h || "0:0").split(":").map(Number); return (a || 0) * 60 + (b || 0); };
+const toHora = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+const ehHora = (h) => /^\d{1,2}:\d{2}$/.test(h || "");
+function diaDe(iso) { return new Date(iso + "T12:00:00").getDay(); }
+function diasEntre(a, b) { return Math.round((new Date(b + "T12:00:00") - new Date(a + "T12:00:00")) / 86400000); }
+function numDia(iso) { return Math.floor(Date.parse(iso + "T12:00:00Z") / 86400000); }
+
+function rotinaPadrao() {
+  const dias = {};
+  for (let d = 0; d < 7; d++) dias[d] = { aula: d >= 1 && d <= 5, ini: "07:00", fim: "12:30", materias: [] };
+  const materias = {};
+  BASE_MATERIAS.forEach((m) => materias[m] = 2);
+  return { dias, atividades: [], acordar: "06:30", dormir: "22:00", minutos: 60, fds: "leve", materias };
+}
+
+/* horários livres de um dia (em minutos desde 00:00) */
+function subtrair(livres, a, b) {
+  const r = [];
+  for (const [x, y] of livres) {
+    if (b <= x || a >= y) { r.push([x, y]); continue; }
+    if (a > x) r.push([x, a]);
+    if (b < y) r.push([b, y]);
+  }
+  return r;
+}
+function intervalosLivres(rot, dow) {
+  const dia = rot.dias[dow] || {};
+  const fimDeSemana = (dow === 0 || dow === 6) && !dia.aula;
+  const inicio = Math.max(toMin(rot.acordar) + 45, fimDeSemana ? 9 * 60 + 30 : 8 * 60);
+  let livres = [[inicio, toMin(rot.dormir) - 30]];
+  if (dia.aula) livres = subtrair(livres, toMin(dia.ini) - 30, toMin(dia.fim) + 90); // ida, volta e almoço
+  livres = subtrair(livres, 12 * 60, 13 * 60);          // almoço
+  livres = subtrair(livres, 19 * 60 + 30, 20 * 60);     // jantar
+  for (const at of rot.atividades.filter((a) => +a.dia === dow && ehHora(a.ini) && ehHora(a.fim))) {
+    livres = subtrair(livres, toMin(at.ini) - 20, toMin(at.fim) + 20);
+  }
+  return livres.filter(([a, b]) => b - a >= 25);
+}
+function minutosAlvo(rot, dow) {
+  const dia = rot.dias[dow] || {};
+  if ((dow === 0 || dow === 6) && !dia.aula) {
+    if (rot.fds === "livre") return 0;
+    if (rot.fds === "leve") return Math.max(30, Math.round(rot.minutos / 2 / 15) * 15);
+  }
+  return rot.minutos;
+}
+function horariosDoDia(rot, dow) {
+  const alvo = minutosAlvo(rot, dow);
+  const L = alvo <= 45 ? alvo : alvo <= 60 ? 30 : 45, pausa = 10;
+  const blocos = []; let total = 0;
+  for (const [a, b] of intervalosLivres(rot, dow)) {
+    let t = a;
+    while (total < alvo && t + 20 <= b) {
+      const dur = Math.min(L, alvo - total, b - t);
+      if (dur < 20) break;
+      blocos.push([t, t + dur]); total += dur; t += dur + pausa;
+    }
+    if (total >= alvo) break;
+  }
+  return { blocos, alvo, total };
+}
+
+/* o que estudar em cada bloco */
+function listaMaterias(rot) {
+  return Object.entries(rot.materias).filter(([, d]) => d > 0).sort((a, b) => a[0].localeCompare(b[0]));
+}
+function tarefasDoDia(rot, iso, n) {
+  const dow = diaDe(iso);
+  const fila = [];
+  for (const t of estado.tarefas.filter((x) => !x.feito && x.data)) {
+    const dist = diasEntre(iso, t.data);
+    const mat = t.materia || t.titulo;
+    if (t.tipo === "prova") {
+      if (dist === 1) fila.push({ prio: 100, materia: mat, texto: `Simulado e revisão final · prova amanhã`, tarefaId: t.id });
+      else if (dist === 2) fila.push({ prio: 92, materia: mat, texto: `Flashcards e exercícios · prova em 2 dias`, tarefaId: t.id });
+      else if (dist === 3) fila.push({ prio: 88, materia: mat, texto: `Estudar o conteúdo e fazer o resumo · prova em 3 dias`, tarefaId: t.id });
+      else if (dist === 5) fila.push({ prio: 60, materia: mat, texto: `Primeira leitura do conteúdo · prova em 5 dias`, tarefaId: t.id });
+    } else if (t.tipo === "trabalho" || t.tipo === "apresentacao") {
+      if (dist === 1) fila.push({ prio: 96, materia: mat, texto: t.tipo === "apresentacao" ? "Ensaiar a apresentação · é amanhã" : "Finalizar e revisar o trabalho · entrega amanhã", tarefaId: t.id });
+      else if (dist >= 2 && dist <= 4) fila.push({ prio: 75, materia: mat, texto: `Avançar: ${t.titulo}`, tarefaId: t.id });
+    } else if (dist === 1) {
+      fila.push({ prio: 98, materia: mat, texto: `Fazer: ${t.titulo}`, tarefaId: t.id });
+    }
+  }
+  const usadas = new Set(fila.map((f) => f.materia));
+  // revisar a aula do dia (a matéria mais difícil que teve aula)
+  const dia = rot.dias[dow] || {};
+  if (dia.aula && dia.materias && dia.materias.length) {
+    const aulas = [...new Set(dia.materias)].filter((m) => !usadas.has(m)).sort((a, b) => (rot.materias[b] || 2) - (rot.materias[a] || 2));
+    if (aulas[0]) { fila.push({ prio: 70, materia: aulas[0], texto: "Revisar a aula de hoje e refazer exemplos" }); usadas.add(aulas[0]); }
+  }
+  // rodízio: matérias difíceis aparecem mais vezes
+  const roda = [];
+  for (const [m, d] of listaMaterias(rot)) for (let k = 0; k < d; k++) roda.push(m);
+  if (roda.length) {
+    let i = (numDia(iso) * 3) % roda.length, voltas = 0;
+    while (fila.length < n && voltas < roda.length * 2) {
+      const m = roda[i % roda.length]; i++; voltas++;
+      if (usadas.has(m)) continue;
+      usadas.add(m);
+      const d = rot.materias[m];
+      fila.push({ prio: 10, materia: m, texto: d >= 3 ? "Exercícios (matéria difícil, vá com calma)" : d === 1 ? "Revisão rápida do caderno" : "Revisar o caderno e fazer exercícios" });
+    }
+  }
+  return fila.sort((a, b) => b.prio - a.prio).slice(0, n);
+}
+
+function montarSemana() {
+  const rot = estado.rotina; if (!rot) return [];
+  const dias = [];
+  for (let k = 0; k < 7; k++) {
+    const d = new Date(hojeISO() + "T12:00:00"); d.setDate(d.getDate() + k);
+    const iso = d.toISOString().slice(0, 10);
+    const { blocos, alvo } = horariosDoDia(rot, d.getDay());
+    const tarefas = tarefasDoDia(rot, iso, blocos.length);
+    dias.push({
+      iso, dow: d.getDay(), alvo,
+      blocos: blocos.slice(0, tarefas.length).map(([a, b], i) => ({ ...tarefas[i], ini: toHora(a), fim: toHora(b), chave: `${iso}|${tarefas[i].materia}|${tarefas[i].texto}` })),
+      semHorario: alvo > 0 && blocos.length === 0,
+    });
+  }
+  return dias;
+}
+
+/* ---------- tela ---------- */
+function renderCronograma() {
+  const alvo = $("#conteudoCrono");
+  if (!estado.rotina) {
+    alvo.innerHTML = `
+      <div class="hero">
+        <div class="titulo">Seu cronograma de estudos.</div>
+        <p>Me conte seus horários de escola, atividades e sono. Eu monto sua semana de estudos e dou prioridade às provas da agenda.</p>
+        <button class="botao" id="btnConfigCrono">⏰ Informar meus horários</button>
+      </div>`;
+    $("#btnConfigCrono").onclick = configurarRotina;
+    return;
+  }
+  // limpa marcações antigas
+  const limite = hojeISO();
+  for (const k of Object.keys(estado.feitosCrono)) if (k.slice(0, 10) < limite) delete estado.feitosCrono[k];
+  const semana = montarSemana();
+  const hoje = semana[0];
+  const feitosHoje = hoje.blocos.filter((b) => estado.feitosCrono[b.chave]).length;
+  const totalSemana = semana.reduce((s, d) => s + d.blocos.length, 0);
+  let html = `
+    <div class="hero">
+      <div class="titulo">${hoje.blocos.length ? (feitosHoje === hoje.blocos.length ? "Hoje tá feito! 🎉" : `Hoje: ${feitosHoje} de ${hoje.blocos.length} ${hoje.blocos.length === 1 ? "bloco" : "blocos"}`) : "Hoje é dia livre 😎"}</div>
+      <p>${estado.rotina.minutos} min por dia · ${totalSemana} blocos nos próximos 7 dias. O plano se ajusta sozinho quando você salva provas na agenda.</p>
+      <div class="linha">
+        <button class="botao" id="btnEditarCrono">⚙️ Meus horários</button>
+        <button class="botao claro" id="btnCalCrono">📅 Calendário</button>
+      </div>
+    </div>`;
+  for (const d of semana) {
+    const nome = d.iso === hojeISO() ? "Hoje" : diasEntre(hojeISO(), d.iso) === 1 ? "Amanhã" : DIAS_SEM[d.dow];
+    const data = new Date(d.iso + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+    html += `<h3>${nome} · ${data}</h3>`;
+    if (!d.blocos.length) {
+      html += `<div class="card pequeno">${d.semHorario ? "Sem horário livre neste dia. Confira suas atividades em ⚙️ Meus horários." : "Dia livre. Descanse! 🌴"}</div>`;
+      continue;
+    }
+    html += `<div class="lista">${d.blocos.map((b) => {
+      const feito = !!estado.feitosCrono[b.chave];
+      const t = b.tarefaId && estado.tarefas.find((x) => x.id === b.tarefaId);
+      const podeEstudar = t && ["prova", "trabalho", "apresentacao"].includes(t.tipo);
+      return `<div class="card tarefa ${feito ? "feita" : ""}" data-chave="${esc(b.chave)}">
+        <button class="check ${feito ? "on" : ""}" data-cacao="feito">${feito ? "✓" : ""}</button>
+        <div class="corpo">
+          <div class="meta" style="margin:0 0 2px"><span class="quando">${b.ini}–${b.fim}</span> · <span>${iconeMateria(b.materia)} ${esc(b.materia)}</span></div>
+          <div class="t">${esc(b.texto)}</div>
+          ${podeEstudar && !feito ? `<div class="acoes"><button class="mini roxo" data-cacao="estudar" data-tarefa="${t.id}">🧠 Abrir material</button></div>` : ""}
+        </div></div>`;
+    }).join("")}</div>`;
+  }
+  alvo.innerHTML = html;
+  $("#btnEditarCrono").onclick = configurarRotina;
+  $("#btnCalCrono").onclick = () => baixarSemanaCalendario(semana);
+}
+$("#conteudoCrono").addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-cacao]"); if (!b) return;
+  if (b.dataset.cacao === "feito") {
+    const chave = b.closest("[data-chave]").dataset.chave;
+    if (estado.feitosCrono[chave]) delete estado.feitosCrono[chave];
+    else { estado.feitosCrono[chave] = true; toast("Bloco feito! 💪"); }
+    salvar(); renderCronograma();
+  }
+  if (b.dataset.cacao === "estudar") {
+    const t = estado.tarefas.find((x) => x.id === b.dataset.tarefa);
+    if (t) estudarTarefa(t);
+  }
+});
+
+/* ---------- formulário de horários ---------- */
+function configurarRotina() {
+  const r = JSON.parse(JSON.stringify(estado.rotina || rotinaPadrao()));
+  const desenhar = () => {
+    const rolagem = document.querySelector(".folha") ? document.querySelector(".folha").scrollTop : 0;
+    const todas = [...new Set([...Object.keys(r.materias), ...MATERIAS])];
+    abrirModal(`
+      <div class="topo"><b>Meus horários</b><button class="fechar" data-fechar>✕</button></div>
+
+      <div class="card">
+        <b>🏫 Escola</b>
+        <div class="acoes">
+          <button class="mini" data-turno="manha">Manhã</button>
+          <button class="mini" data-turno="tarde">Tarde</button>
+          <button class="mini" data-turno="integral">Integral</button>
+          <button class="mini roxo" id="rFoto">📷 Foto do horário</button>
+        </div>
+        <p class="pequeno" style="margin:8px 0 0">Com a foto da grade, eu também descubro as matérias de cada dia para você revisar a aula.</p>
+        ${[1, 2, 3, 4, 5, 6].map((d) => `
+          <div style="margin-top:12px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <button class="check ${r.dias[d].aula ? "on" : ""}" data-aula="${d}">${r.dias[d].aula ? "✓" : ""}</button>
+              <b style="flex:1">${DIAS_SEM[d]}</b>
+              ${r.dias[d].aula ? `<input type="time" value="${r.dias[d].ini}" data-dia="${d}" data-c="ini" style="width:104px"> – <input type="time" value="${r.dias[d].fim}" data-dia="${d}" data-c="fim" style="width:104px">` : `<span class="pequeno">sem aula</span>`}
+            </div>
+            ${r.dias[d].aula ? `<input type="text" placeholder="Matérias do dia (opcional)" value="${esc((r.dias[d].materias || []).join(", "))}" data-dia="${d}" data-c="materias" style="margin-top:6px;font-size:14px">` : ""}
+          </div>`).join("")}
+      </div>
+      <div style="height:10px"></div>
+
+      <div class="card">
+        <b>⚽ Atividades fixas</b>
+        <p class="pequeno" style="margin:4px 0 0">Curso de inglês, esporte, música, igreja…</p>
+        ${r.atividades.map((a, i) => `
+          <div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <input type="text" placeholder="Nome" value="${esc(a.nome)}" data-at="${i}" data-c="nome" style="flex:1 1 100%">
+            <select data-at="${i}" data-c="dia" style="flex:1">${DIAS_SEM.map((n, d) => `<option value="${d}" ${+a.dia === d ? "selected" : ""}>${n}</option>`).join("")}</select>
+            <input type="time" value="${a.ini}" data-at="${i}" data-c="ini" style="width:100px">
+            <input type="time" value="${a.fim}" data-at="${i}" data-c="fim" style="width:100px">
+            <button class="mini" data-rmat="${i}">✕</button>
+          </div>`).join("")}
+        <button class="botao secundario" id="rAddAt" style="margin-top:10px;min-height:42px;padding:10px">＋ Adicionar atividade</button>
+      </div>
+      <div style="height:10px"></div>
+
+      <div class="card">
+        <b>😴 Sono</b>
+        <div class="linha">
+          <div><label class="campo">Acordo às</label><input type="time" value="${r.acordar}" id="rAcordar"></div>
+          <div><label class="campo">Durmo às</label><input type="time" value="${r.dormir}" id="rDormir"></div>
+        </div>
+      </div>
+      <div style="height:10px"></div>
+
+      <div class="card">
+        <b>⏱️ Quanto estudar por dia</b>
+        <div class="acoes">${[30, 45, 60, 90, 120].map((m) => `<button class="mini ${r.minutos === m ? "roxo" : ""}" data-min="${m}">${{ 30: "30 min", 45: "45 min", 60: "1h", 90: "1h30", 120: "2h" }[m]}</button>`).join("")}</div>
+        <label class="campo">Fim de semana</label>
+        <div class="acoes" style="margin-top:0">${[["livre", "Livre"], ["leve", "Leve"], ["normal", "Normal"]].map(([k, v]) => `<button class="mini ${r.fds === k ? "roxo" : ""}" data-fds="${k}">${v}</button>`).join("")}</div>
+      </div>
+      <div style="height:10px"></div>
+
+      <div class="card">
+        <b>📚 Suas matérias</b>
+        <p class="pequeno" style="margin:4px 0 0">Toque para mudar: fácil → média → difícil → não tenho. As difíceis aparecem mais no cronograma.</p>
+        <div class="acoes">${todas.map((m) => {
+          const d = r.materias[m] || 0;
+          const estilo = ["background:#F1F0F5;color:#aaa;text-decoration:line-through", "background:var(--verde-claro);color:#087f5b", "background:var(--azul-claro);color:var(--azul)", "background:var(--vermelho-claro);color:var(--vermelho)"][d];
+          return `<button class="mini" style="${estilo}" data-mat-dif="${esc(m)}">${esc(m)}${d ? " · " + ["", "fácil", "média", "difícil"][d] : ""}</button>`;
+        }).join("")}</div>
+      </div>
+      <div style="height:14px"></div>
+      <button class="botao primario" id="rSalvar">✨ Montar meu cronograma</button>`);
+    const folha = document.querySelector(".folha"); if (folha) folha.scrollTop = rolagem;
+
+    document.querySelectorAll("[data-dia]").forEach((el) => el.oninput = () => {
+      const d = r.dias[el.dataset.dia];
+      if (el.dataset.c === "materias") {
+        d.materias = el.value.split(/[,;]/).map((x) => x.trim()).filter(Boolean);
+      } else d[el.dataset.c] = el.value;
+    });
+    document.querySelectorAll("[data-dia][data-c=materias]").forEach((el) => el.onchange = () => {
+      for (const m of r.dias[el.dataset.dia].materias) if (!r.materias[m]) r.materias[m] = 2;
+      desenhar();
+    });
+    document.querySelectorAll("[data-aula]").forEach((el) => el.onclick = () => { const d = r.dias[el.dataset.aula]; d.aula = !d.aula; desenhar(); });
+    document.querySelectorAll("[data-turno]").forEach((el) => el.onclick = () => {
+      const [ini, fim] = { manha: ["07:00", "12:30"], tarde: ["13:00", "18:00"], integral: ["07:00", "17:00"] }[el.dataset.turno];
+      for (let d = 1; d <= 5; d++) Object.assign(r.dias[d], { aula: true, ini, fim });
+      desenhar();
+    });
+    document.querySelectorAll("[data-at]").forEach((el) => el.oninput = () => { r.atividades[el.dataset.at][el.dataset.c] = el.value; });
+    document.querySelectorAll("[data-rmat]").forEach((el) => el.onclick = () => { r.atividades.splice(+el.dataset.rmat, 1); desenhar(); });
+    $("#rAddAt").onclick = () => { r.atividades.push({ nome: "", dia: 2, ini: "15:00", fim: "16:00" }); desenhar(); };
+    $("#rAcordar").oninput = (e) => r.acordar = e.target.value;
+    $("#rDormir").oninput = (e) => r.dormir = e.target.value;
+    document.querySelectorAll("[data-min]").forEach((el) => el.onclick = () => { r.minutos = +el.dataset.min; desenhar(); });
+    document.querySelectorAll("[data-fds]").forEach((el) => el.onclick = () => { r.fds = el.dataset.fds; desenhar(); });
+    document.querySelectorAll("[data-mat-dif]").forEach((el) => el.onclick = () => {
+      const m = el.dataset.matDif; r.materias[m] = ((r.materias[m] || 0) + 1) % 4; desenhar();
+    });
+    $("#rFoto").onclick = () => $("#arquivoHorario").click();
+    $("#arquivoHorario").onchange = async (ev) => {
+      const arq = ev.target.files[0]; ev.target.value = ""; if (!arq) return;
+      let parar;
+      try {
+        const foto = await reduzirFoto(arq, 1600, 0.78);
+        parar = carregando("Lendo seu horário…");
+        const resp = await chamarIA({ modo: "horario", fotos: [{ mime: foto.mime, data: foto.data }], hoje: hojeISO() });
+        parar();
+        if (!aplicarHorario(r, resp)) { toast(resp.aviso || "Não consegui ler o horário. Tente uma foto mais reta e de perto.", 4500); return; }
+        toast("Horário preenchido! Confira se está certo ✅", 3500); desenhar();
+      } catch (e) {
+        parar && parar();
+        erroIA(e, () => { aplicarHorario(r, DEMO_HORARIO()); configurarRotinaReabrir(); });
+      }
+    };
+    $("#rSalvar").onclick = () => {
+      if (!ehHora(r.acordar) || !ehHora(r.dormir) || toMin(r.dormir) <= toMin(r.acordar)) { toast("Confira os horários de acordar e dormir."); return; }
+      for (let d = 1; d <= 6; d++) if (r.dias[d].aula && (!ehHora(r.dias[d].ini) || !ehHora(r.dias[d].fim) || toMin(r.dias[d].fim) <= toMin(r.dias[d].ini))) { toast(`Confira o horário da escola de ${DIAS_SEM[d]}.`); return; }
+      if (!listaMaterias(r).length) { toast("Marque pelo menos uma matéria."); return; }
+      r.atividades = r.atividades.filter((a) => ehHora(a.ini) && ehHora(a.fim) && toMin(a.fim) > toMin(a.ini));
+      estado.rotina = r; salvar(); fecharModal(); renderCronograma();
+      toast("Cronograma pronto! 📅");
+    };
+  };
+  configurarRotinaReabrir = desenhar;
+  desenhar();
+}
+let configurarRotinaReabrir = () => {};
+
+function aplicarHorario(r, resp) {
+  const dias = resp && resp.dias && typeof resp.dias === "object" ? resp.dias : {};
+  let algum = false;
+  for (const [k, v] of Object.entries(dias)) {
+    const d = CHAVE_DIA[String(k).toLowerCase().slice(0, 3).replace("á", "a")];
+    if (!d || !v) continue;
+    algum = true;
+    const mats = (Array.isArray(v.materias) ? v.materias : []).map(String).map((x) => x.trim()).filter(Boolean).slice(0, 12);
+    r.dias[d] = { aula: true, ini: ehHora(v.inicio) ? v.inicio.padStart(5, "0") : r.dias[d].ini, fim: ehHora(v.fim) ? v.fim.padStart(5, "0") : r.dias[d].fim, materias: mats };
+    for (const m of mats) if (!r.materias[m]) r.materias[m] = 2;
+  }
+  if (algum) for (let d = 1; d <= 6; d++) if (!Object.keys(dias).some((k) => CHAVE_DIA[String(k).toLowerCase().slice(0, 3).replace("á", "a")] === d)) r.dias[d].aula = false;
+  return algum;
+}
+
+function DEMO_HORARIO() {
+  return { dias: {
+    seg: { inicio: "07:10", fim: "12:30", materias: ["Matemática", "Português", "História", "Inglês"] },
+    ter: { inicio: "07:10", fim: "12:30", materias: ["Ciências", "Matemática", "Geografia", "Artes"] },
+    qua: { inicio: "07:10", fim: "12:30", materias: ["Português", "Redação", "Matemática", "Educação Física"] },
+    qui: { inicio: "07:10", fim: "12:30", materias: ["História", "Ciências", "Inglês", "Português"] },
+    sex: { inicio: "07:10", fim: "11:40", materias: ["Geografia", "Matemática", "Ciências"] },
+  } };
+}
+
+/* exporta a semana para o calendário do celular */
+function baixarSemanaCalendario(semana) {
+  const limpar = (s) => String(s || "").replace(/[\;,]/g, (c) => "\\" + c).replace(/\n/g, "\\n");
+  const agora = new Date().toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+  const linhas = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Estudai//PT-BR", "CALSCALE:GREGORIAN"];
+  let n = 0;
+  for (const d of semana) for (const b of d.blocos) {
+    const dt = d.iso.replace(/-/g, "");
+    linhas.push("BEGIN:VEVENT", `UID:${dt}-${b.ini.replace(":", "")}-${n++}@estudai`, `DTSTAMP:${agora}`,
+      `DTSTART:${dt}T${b.ini.replace(":", "")}00`, `DTEND:${dt}T${b.fim.replace(":", "")}00`,
+      `SUMMARY:${limpar("📚 " + b.materia)}`, `DESCRIPTION:${limpar(b.texto)}`,
+      "BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${limpar("Hora de estudar " + b.materia)}`, "TRIGGER:-PT5M", "END:VALARM", "END:VEVENT");
+  }
+  if (!n) { toast("Não há blocos de estudo nos próximos dias."); return; }
+  linhas.push("END:VCALENDAR");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([linhas.join("\r\n")], { type: "text/calendar;charset=utf-8" }));
+  a.download = "cronograma-estudos.ics";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  toast(`Abra o arquivo para pôr os ${n} blocos no calendário. Ele avisa 5 min antes de cada um.`, 4500);
 }
 
 /* ============================================================
