@@ -22,7 +22,7 @@ Esta primeira versão de teste não tem login nem pagamento. Os dados ficam salv
 2. **Vercel:** vá em *Add New → Project*, importe o repositório e deixe *Framework Preset* como **Other**. Não há comando de build.
 3. **Chave do Gemini:** antes de clicar em *Deploy*, abra *Environment Variables* e crie:
    - `GEMINI_API_KEY`: pode ser a mesma chave grátis do ResumAI (aistudio.google.com).
-   - `GEMINI_MODEL` (opcional): coloque o mesmo modelo que está funcionando no ResumAI. Se ficar vazio, o app tenta sozinho uma lista de modelos Flash.
+   - Não precisa de `GEMINI_MODEL`: o app já usa o `gemini-flash-latest`, o mesmo do ResumAI.
 4. Se você criar ou mudar as variáveis depois, vá em *Deployments → ⋯ → Redeploy* para elas valerem.
 5. Abra o site (`seu-projeto.vercel.app`) no celular e use **"Adicionar à tela inicial"**.
 

@@ -4,9 +4,10 @@
 //
 // Variáveis de ambiente (Vercel > Project > Settings > Environment Variables):
 //   GEMINI_API_KEY  -> obrigatória (pegue grátis em aistudio.google.com)
-//   GEMINI_MODEL    -> opcional (ex.: o mesmo modelo que funciona no ResumAI)
+//   GEMINI_MODEL    -> opcional; sem ela usa gemini-flash-latest (igual ao ResumAI)
 
-const MODELOS_RESERVA = ["gemini-3.6-flash", "gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"];
+// Mesmos apelidos usados no ResumAI: o Google mantém apontando para o modelo mais recente.
+const MODELOS_RESERVA = ["gemini-flash-latest", "gemini-flash-lite-latest"];
 const MAX_FOTOS = 6;
 const MAX_BYTES_TOTAL = 4_000_000; // limite do corpo das funções Vercel é 4,5 MB
 
