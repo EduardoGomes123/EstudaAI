@@ -1,7 +1,7 @@
 // Estudaí — guarda a "casca" do app para abrir rápido e funcionar sem internet
 // (a IA continua precisando de internet).
-const CACHE = "estudai-v1";
-const ARQUIVOS = ["/", "/index.html", "/manifest.json", "/icon.svg", "/icon-192.png", "/icon-512.png"];
+const CACHE = "estudai-v2";
+const ARQUIVOS = ["/", "/index.html", "/manifest.json", "/icon.svg", "/icon-192.png", "/icon-512.png", "/biblioteca.json"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ARQUIVOS)).then(() => self.skipWaiting()));

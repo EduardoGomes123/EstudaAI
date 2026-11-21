@@ -515,27 +515,67 @@ function baixarLembrete(t) {
    ESTUDAR
    ============================================================ */
 function renderMateriais() {
+  let html;
   if (!estado.materiais.length) {
-    $("#listaMateriais").innerHTML = `
-      <div class="vazio"><div class="em">📖</div>
-        <p>Nenhum material ainda.<br>Fotografe até 6 páginas do caderno sobre o assunto da prova.</p>
-        <button class="link" id="btnExemploEstudo">Ver um exemplo</button>
+    html = `
+      <div class="vazio" style="padding-bottom:6px"><div class="em">📖</div>
+        <p>Nenhum material seu ainda.<br>Fotografe até 6 páginas do caderno, ou comece pela biblioteca pronta abaixo.</p>
       </div>`;
-    $("#btnExemploEstudo").onclick = () => salvarMaterial(DEMO_MATERIAL(), null);
-    return;
+  } else {
+    const lista = [...estado.materiais].sort((a, b) => b.criado - a.criado);
+    html = `<h3>Seus materiais</h3><div class="lista">${lista.map((m) => {
+      const t = estado.tarefas.find((x) => x.id === m.tarefaId);
+      const sub = [m.materia, m.serie, t && t.data ? `${TIPOS[t.tipo]} ${textoQuando(t.data).toLowerCase()}` : null, m.melhorNota != null ? `melhor nota: ${m.melhorNota}%` : null].filter(Boolean).join(" · ");
+      return `<button class="card material" data-mat="${m.id}" style="text-align:left;width:100%">
+        <div class="icone">${m.melhorNota >= 80 ? "🏆" : iconeMateria(m.materia)}</div>
+        <div class="corpo"><div class="t">${esc(m.titulo)}</div><div class="pequeno">${esc(sub)}</div></div>
+        <div style="color:var(--suave)">›</div></button>`;
+    }).join("")}</div>`;
   }
-  const lista = [...estado.materiais].sort((a, b) => b.criado - a.criado);
-  $("#listaMateriais").innerHTML = `<h3>Seus materiais</h3><div class="lista">${lista.map((m) => {
-    const t = estado.tarefas.find((x) => x.id === m.tarefaId);
-    const sub = [m.materia, t && t.data ? `${TIPOS[t.tipo]} ${textoQuando(t.data).toLowerCase()}` : null, m.melhorNota != null ? `melhor nota: ${m.melhorNota}%` : null].filter(Boolean).join(" · ");
-    return `<button class="card material" data-mat="${m.id}" style="text-align:left;width:100%">
-      <div class="icone">${m.melhorNota >= 80 ? "🏆" : "🧠"}</div>
-      <div class="corpo"><div class="t">${esc(m.titulo)}</div><div class="pequeno">${esc(sub)}</div></div>
-      <div style="color:var(--suave)">›</div></button>`;
-  }).join("")}</div>`;
+  $("#listaMateriais").innerHTML = html + `<div id="biblioteca"></div>`;
+  renderBiblioteca();
 }
+
+/* ---------- biblioteca pronta ---------- */
+let biblioteca = null, serieBib = null;
+const ICONES = { "Matemática": "➗", "Português": "✍️", "Ciências": "🔬", "História": "🏛️", "Geografia": "🌎", "Inglês": "🇬🇧" };
+function iconeMateria(m) { return ICONES[m] || "🧠"; }
+async function renderBiblioteca() {
+  const alvo = $("#biblioteca"); if (!alvo) return;
+  if (!biblioteca) {
+    try { biblioteca = (await (await fetch("biblioteca.json")).json()).materiais || []; }
+    catch (e) { biblioteca = []; }
+  }
+  if (!biblioteca.length || !$("#biblioteca")) return;
+  const series = [...new Set(biblioteca.map((b) => b.serie))];
+  if (!series.includes(serieBib)) serieBib = series[series.length - 1];
+  const itens = biblioteca.filter((b) => b.serie === serieBib);
+  $("#biblioteca").innerHTML = `
+    <h3>📚 Biblioteca pronta</h3>
+    <div class="abas" style="margin-top:0">${series.map((x) => `<button data-serie="${esc(x)}" class="${x === serieBib ? "ativo" : ""}">${esc(x)}</button>`).join("")}</div>
+    <div class="lista">${itens.map((b) => {
+      const ja = estado.materiais.find((m) => m.bibId === b.id);
+      return `<button class="card material" data-bib="${b.id}" style="text-align:left;width:100%">
+        <div class="icone">${iconeMateria(b.materia)}</div>
+        <div class="corpo"><div class="t">${esc(b.titulo)}</div>
+          <div class="pequeno">${esc(b.materia)} · ${b.flashcards.length} flashcards · ${b.quiz.length} questões${ja ? " · ✓ nos seus materiais" : ""}</div></div>
+        <div style="color:var(--suave)">›</div></button>`;
+    }).join("")}</div>`;
+}
+function abrirDaBiblioteca(id) {
+  const ja = estado.materiais.find((m) => m.bibId === id);
+  if (ja) { abrirMaterial(ja.id); return; }
+  const b = biblioteca.find((x) => x.id === id); if (!b) return;
+  const novo = JSON.parse(JSON.stringify(b));
+  delete novo.id;
+  estado.materiais.push({ ...novo, id: novoId(), bibId: b.id, tarefaId: null, criado: Date.now(), melhorNota: null });
+  salvar(); renderMateriais(); abrirMaterial(estado.materiais[estado.materiais.length - 1].id);
+}
+
 $("#listaMateriais").addEventListener("click", (ev) => {
-  const b = ev.target.closest("[data-mat]"); if (b) abrirMaterial(b.dataset.mat);
+  const b = ev.target.closest("[data-mat]"); if (b) return abrirMaterial(b.dataset.mat);
+  const bib = ev.target.closest("[data-bib]"); if (bib) return abrirDaBiblioteca(bib.dataset.bib);
+  const se = ev.target.closest("[data-serie]"); if (se) { serieBib = se.dataset.serie; renderBiblioteca(); }
 });
 
 $("#btnNovoEstudo").onclick = () => novoEstudo(null);
@@ -698,11 +738,13 @@ function rodarQuiz(m, c) {
       return;
     }
     const q = m.quiz[pos];
+    const ordem = q.opcoes.map((_, i) => i);
+    for (let i = ordem.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ordem[i], ordem[j]] = [ordem[j], ordem[i]]; }
     c.innerHTML = `
       <div class="pequeno">Pergunta ${pos + 1} de ${m.quiz.length} · ${acertos} certas</div>
       <div class="progresso"><div style="width:${(pos / m.quiz.length) * 100}%"></div></div>
       <div class="card" style="margin-top:10px"><b style="font-size:17px">${esc(q.pergunta)}</b></div>
-      <div id="qOpcoes">${q.opcoes.map((o, i) => `<button class="opcao" data-op="${i}">${"ABCD"[i] || i + 1}) ${esc(o)}</button>`).join("")}</div>
+      <div id="qOpcoes">${ordem.map((i, k) => `<button class="opcao" data-op="${i}">${"ABCDEF"[k] || k + 1}) ${esc(q.opcoes[i])}</button>`).join("")}</div>
       <div id="qDepois"></div>`;
     document.querySelectorAll("[data-op]").forEach((b) => b.onclick = () => {
       const esc_ = +b.dataset.op, certo = esc_ === q.correta;
