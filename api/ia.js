@@ -64,11 +64,64 @@ Responda SOMENTE com JSON neste formato:
  "materia": "disciplina",
  "resumo": ["8 a 12 tópicos curtos, cada um com 1 ou 2 frases, do mais importante para o menos importante"],
  "flashcards": [{"frente":"pergunta ou termo","verso":"resposta curta"}],
- "quiz": [{"pergunta":"","opcoes":["","","",""],"correta":0,"explicacao":"por que essa é a certa, em 1 ou 2 frases"}]
+ "quiz": [{"pergunta":"","opcoes":["","","",""],"correta":0,"explicacao":"por que essa é a certa, em 1 ou 2 frases"}],
+ "mapa": {"centro":"tema central em até 4 palavras","ramos":[{"titulo":"ideia principal em até 4 palavras","itens":["detalhe curto em até 7 palavras"]}]}
 }
 - Faça de 10 a 15 flashcards e de 8 a 10 perguntas no quiz.
+- No mapa mental, faça de 4 a 6 ramos, cada um com 2 a 4 itens curtos. Use palavras-chave, não frases longas.
 - No quiz, sempre 4 opções, só uma certa, com "correta" sendo o índice (0 a 3). Varie a posição da resposta certa.
 - Se as fotos estiverem ilegíveis ou não forem de conteúdo escolar, responda {"erro":"explicação curta"}.`;
+}
+
+function promptMapa({ titulo, texto }) {
+  return `Você cria mapas mentais para estudantes brasileiros do ensino fundamental e médio.
+Assunto: ${titulo || "conteúdo de estudo"}.
+
+Com base no resumo abaixo, monte um mapa mental claro, com palavras-chave curtas.
+
+RESUMO:
+${texto}
+
+Regras:
+- "centro": o tema central, em até 4 palavras.
+- De 4 a 6 "ramos", cada um com "titulo" (até 4 palavras) e de 2 a 4 "itens" (até 7 palavras cada).
+- Não invente conteúdo fora do resumo.
+
+Responda SOMENTE com JSON neste formato:
+{"mapa":{"centro":"","ramos":[{"titulo":"","itens":[""]}]}}`;
+}
+
+const PROVAS = {
+  enem: "ENEM (Exame Nacional do Ensino Médio): questões contextualizadas, com texto-base, gráfico descrito, tabela ou situação do cotidiano, interdisciplinares, cobrando interpretação e competências da Matriz de Referência do ENEM. 5 alternativas (A a E).",
+  obmep: "OBMEP (Olimpíada Brasileira de Matemática das Escolas Públicas), 1ª fase: raciocínio lógico, contagem, aritmética, geometria plana e problemas com enunciado criativo. 5 alternativas.",
+  obm: "OBM (Olimpíada Brasileira de Matemática): problemas mais desafiadores de teoria dos números, combinatória, álgebra e geometria, que exigem estratégia. 5 alternativas.",
+  canguru: "Canguru de Matemática: questões curtas, lúdicas e visuais (descreva a figura em texto quando precisar), de lógica e matemática, com dificuldade crescente (3, 4 e 5 pontos). 5 alternativas.",
+  oba: "OBA (Olimpíada Brasileira de Astronomia e Astronáutica): Sistema Solar, movimentos da Terra e da Lua, estações, constelações, foguetes e astronáutica. 4 ou 5 alternativas.",
+  obf: "OBF (Olimpíada Brasileira de Física): cinemática, dinâmica, energia, termologia, óptica e eletricidade, com situações do dia a dia e cálculos. 5 alternativas.",
+  obq: "OBQ (Olimpíada Brasileira de Química): estrutura atômica, tabela periódica, ligações, reações, estequiometria e soluções. 5 alternativas.",
+  obb: "OBB (Olimpíada Brasileira de Biologia): citologia, genética, evolução, ecologia, fisiologia humana e botânica. 5 alternativas.",
+  obr: "OBR (Olimpíada Brasileira de Robótica), modalidade teórica: lógica, sensores, motores, circuitos simples, programação em blocos e algoritmos. 4 ou 5 alternativas.",
+  obl: "OBL (Olimpíada Brasileira de Linguística): problemas autossuficientes de lógica linguística, em que o aluno descobre regras de uma língua desconhecida (dada no enunciado) a partir de exemplos. 4 ou 5 alternativas.",
+  onhb: "ONHB (Olimpíada Nacional em História do Brasil): interpretação de documentos históricos, imagens descritas e textos de época sobre a História do Brasil. 4 alternativas.",
+  olp: "OLP / Olimpíada de Língua Portuguesa: interpretação de texto, gêneros textuais, coesão, coerência e uso da língua. 4 ou 5 alternativas.",
+  obi: "OBI (Olimpíada Brasileira de Informática), modalidade iniciação: lógica, padrões, sequências e raciocínio computacional sem programar. 5 alternativas.",
+};
+
+function promptBanco({ prova, area, serie, assunto, quantidade }) {
+  return `Você é um professor brasileiro especialista em preparar estudantes para provas e olimpíadas.
+Prova: ${PROVAS[prova]}
+${area ? `Área/matéria: ${area}.` : ""}${serie ? `\nSérie do estudante: ${serie}.` : ""}${assunto ? `\nAssunto pedido: ${assunto}.` : ""}
+
+Crie ${quantidade} questões INÉDITAS no mesmo estilo, formato e nível de dificuldade dessa prova. Não copie questões reais de provas anteriores; crie questões parecidas.
+- Varie os assuntos e a dificuldade (fácil, média e difícil).
+- Só uma alternativa correta, com "correta" sendo o índice dela. Varie a posição da resposta certa.
+- Todas as contas e fatos precisam estar CORRETOS. Confira cada questão antes de responder.
+- Se precisar de figura, descreva-a em palavras no enunciado.
+- A explicação deve mostrar o raciocínio passo a passo em 1 a 4 frases.
+- Em "resumo", dê de 4 a 6 dicas práticas para ir bem nessa prova.
+
+Responda SOMENTE com JSON neste formato:
+{"titulo":"título curto do banco de questões","materia":"disciplina principal","resumo":["dica"],"flashcards":[],"quiz":[{"pergunta":"","opcoes":["","","","",""],"correta":0,"explicacao":""}]}`;
 }
 
 let res_;
@@ -108,13 +161,33 @@ module.exports = async (req, res) => {
   if (req.method !== "POST") return resposta(405, { erro: "Use POST." });
 
   const chave = process.env.GEMINI_API_KEY;
-  if (!chave) return resposta(500, { erro: "A chave GEMINI_API_KEY não foi configurada na Netlify." });
+  if (!chave) return resposta(500, { erro: "A chave GEMINI_API_KEY não foi configurada na Vercel." });
 
   let dados = req.body;
   if (typeof dados === "string") { try { dados = JSON.parse(dados); } catch { return resposta(400, { erro: "Pedido inválido." }); } }
 
   const { modo, fotos, hoje, materia, assunto } = dados || {};
-  if (!["agenda", "estudo", "horario"].includes(modo)) return resposta(400, { erro: "Modo inválido." });
+  if (!["agenda", "estudo", "horario", "mapa", "banco"].includes(modo)) return resposta(400, { erro: "Modo inválido." });
+
+  if (modo === "banco") {
+    const prova = String(dados.prova || "");
+    if (!PROVAS[prova]) return resposta(400, { erro: "Escolha a prova ou olimpíada." });
+    const quantidade = Math.min(15, Math.max(5, parseInt(dados.quantidade, 10) || 10));
+    const texto = promptBanco({
+      prova, quantidade,
+      area: String(dados.area || "").slice(0, 60),
+      serie: String(dados.serie || "").slice(0, 40),
+      assunto: String(dados.assunto || "").slice(0, 120),
+    });
+    return responderComIA(chave, [{ text: texto }]);
+  }
+
+  if (modo === "mapa") {
+    const texto = String(dados.texto || "").slice(0, 8000).trim();
+    if (!texto) return resposta(400, { erro: "Envie o resumo para montar o mapa." });
+    return responderComIA(chave, [{ text: promptMapa({ titulo: String(dados.titulo || "").slice(0, 100), texto }) }]);
+  }
+
   if (!Array.isArray(fotos) || fotos.length === 0) return resposta(400, { erro: "Envie pelo menos uma foto." });
   if (fotos.length > MAX_FOTOS) return resposta(400, { erro: `Envie no máximo ${MAX_FOTOS} fotos.` });
 
@@ -139,6 +212,10 @@ module.exports = async (req, res) => {
     ...fotos.map((f) => ({ inline_data: { mime_type: f.mime, data: f.data } })),
   ];
 
+  return responderComIA(chave, partes);
+};
+
+async function responderComIA(chave, partes) {
   const modelos = [process.env.GEMINI_MODEL, ...MODELOS_RESERVA].filter((m, i, a) => m && a.indexOf(m) === i);
 
   let ultimoErro = "Não foi possível falar com a IA.";
@@ -166,6 +243,6 @@ module.exports = async (req, res) => {
   }
 
   return resposta(502, { erro: ultimoErro });
-};
+}
 
 module.exports.config = { maxDuration: 60 };

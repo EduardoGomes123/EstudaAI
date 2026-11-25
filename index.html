@@ -101,7 +101,7 @@
   .toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--texto);color:#fff;padding:11px 16px;border-radius:12px;z-index:70;font-size:14px;max-width:90vw;text-align:center}
   /* estudo */
   .abas{display:flex;background:#ECEAF4;border-radius:14px;padding:4px;margin:12px 0}
-  .abas button{flex:1;border:0;background:transparent;border-radius:11px;padding:9px 4px;font-weight:700;color:var(--suave);font-size:14px}
+  .abas button{flex:1;border:0;background:transparent;border-radius:11px;padding:9px 2px;font-weight:700;color:var(--suave);font-size:13px;white-space:nowrap}
   .abas button.ativo{background:#fff;color:var(--roxo);box-shadow:0 1px 4px rgba(0,0,0,.08)}
   .resumo li{margin:0 0 10px}
   .resumo{padding-left:20px;margin:0}
@@ -123,13 +123,31 @@
   .pequeno{font-size:13px;color:var(--suave)}
   .oculto{display:none!important}
   .link{background:none;border:0;color:var(--roxo);font-weight:700;padding:6px;text-decoration:underline}
+  /* mapa mental */
+  .mapa-caixa{background:#fff;border:1px solid var(--borda);border-radius:var(--raio);overflow:auto;-webkit-overflow-scrolling:touch;max-height:62vh}
+  .mapa-caixa img{display:block;width:100%;height:auto}
+  .mapa-caixa.zoom img{width:240%;max-width:none}
+  /* feedback */
+  .topo-dir{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+  .carinhas{display:flex;justify-content:space-between;gap:6px;margin:8px 0 4px}
+  .carinhas button{flex:1;border:2px solid var(--borda);background:#fff;border-radius:14px;font-size:30px;padding:8px 0;line-height:1}
+  .carinhas button.ativo{border-color:var(--roxo);background:var(--roxo-claro);transform:scale(1.06)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+  .chips button{border:1px solid var(--borda);background:#fff;border-radius:999px;padding:7px 12px;font-size:14px;font-weight:600}
+  .chips button.ativo{background:var(--roxo);border-color:var(--roxo);color:#fff}
+  .curtiu{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:12px;padding:10px 12px;background:#fff;border:1px dashed var(--borda);border-radius:14px;font-size:14px;font-weight:600;color:var(--suave)}
+  .curtiu .bt{display:flex;gap:6px}
+  .curtiu button{border:1px solid var(--borda);background:#fff;border-radius:10px;font-size:20px;padding:4px 10px}
 </style>
 </head>
 <body>
 <div class="app">
   <header>
     <div class="logo">📚 <div>Estuda<span>í</span></div></div>
-    <div class="data-hoje" id="dataHoje"></div>
+    <div class="topo-dir">
+      <button class="mini roxo" id="btnFeedback">💬 Opinar</button>
+      <div class="data-hoje" id="dataHoje"></div>
+    </div>
   </header>
 
   <!-- ================= AGENDA ================= -->
@@ -155,6 +173,10 @@
       <div class="titulo">Do caderno pro simulado.</div>
       <p>Fotografe as páginas do caderno ou do livro. Eu crio resumo, flashcards e um simulado pra você treinar.</p>
       <button class="botao" id="btnNovoEstudo">📷 Fotografar o caderno</button>
+    </div>
+    <div class="linha" style="margin-top:12px">
+      <button class="card" id="btnEnem" style="text-align:left;font-weight:700">🎯 Questões<br><span class="pequeno" style="font-weight:600">estilo ENEM</span></button>
+      <button class="card" id="btnOlimp" style="text-align:left;font-weight:700">🏅 Olimpíadas<br><span class="pequeno" style="font-weight:600">OBMEP, OBM, Canguru…</span></button>
     </div>
     <div id="listaMateriais"></div>
   </section>
@@ -540,7 +562,7 @@ function renderMateriais() {
       const t = estado.tarefas.find((x) => x.id === m.tarefaId);
       const sub = [m.materia, t && t.data ? `${TIPOS[t.tipo]} ${textoQuando(t.data).toLowerCase()}` : null, m.melhorNota != null ? `melhor nota: ${m.melhorNota}%` : null].filter(Boolean).join(" · ");
       return `<button class="card material" data-mat="${m.id}" style="text-align:left;width:100%">
-        <div class="icone">${m.melhorNota >= 80 ? "🏆" : iconeMateria(m.materia)}</div>
+        <div class="icone">${m.melhorNota >= 80 ? "🏆" : m.banco === "enem" ? "🎯" : m.banco ? "🏅" : iconeMateria(m.materia)}</div>
         <div class="corpo"><div class="t">${esc(m.titulo)}</div><div class="pequeno">${esc(sub)}</div></div>
         <div style="color:var(--suave)">›</div></button>`;
     }).join("")}</div>`;
@@ -556,6 +578,8 @@ $("#listaMateriais").addEventListener("click", (ev) => {
 });
 
 $("#btnNovoEstudo").onclick = () => novoEstudo(null);
+$("#btnEnem").onclick = () => abrirBanco("enem");
+$("#btnOlimp").onclick = () => abrirBanco("olimpiada");
 
 let fotosEstudo = [];
 function novoEstudo(tarefa) {
@@ -617,15 +641,16 @@ function validarMaterial(r) {
   const resumo = (Array.isArray(r.resumo) ? r.resumo : []).map(String).filter(Boolean).slice(0, 15);
   const flashcards = (Array.isArray(r.flashcards) ? r.flashcards : []).filter((c) => c && c.frente && c.verso).map((c) => ({ frente: String(c.frente), verso: String(c.verso) })).slice(0, 20);
   const quiz = (Array.isArray(r.quiz) ? r.quiz : []).filter((q) => q && q.pergunta && Array.isArray(q.opcoes) && q.opcoes.length >= 2 && Number.isInteger(q.correta) && q.correta >= 0 && q.correta < q.opcoes.length)
-    .map((q) => ({ pergunta: String(q.pergunta), opcoes: q.opcoes.map(String), correta: q.correta, explicacao: String(q.explicacao || "") })).slice(0, 12);
+    .map((q) => ({ pergunta: String(q.pergunta), opcoes: q.opcoes.map(String), correta: q.correta, explicacao: String(q.explicacao || "") })).slice(0, 20);
   if (!resumo.length && !flashcards.length && !quiz.length) return null;
-  return { titulo: String(r.titulo || "Material de estudo").slice(0, 80), materia: String(r.materia || "").slice(0, 40), resumo, flashcards, quiz };
+  const titulo = String(r.titulo || "Material de estudo").slice(0, 80);
+  return { titulo, materia: String(r.materia || "").slice(0, 40), resumo, flashcards, quiz, mapa: validarMapa(r.mapa, titulo) };
 }
 
-function salvarMaterial(m, tarefa) {
+function salvarMaterial(m, tarefa, aba = "resumo") {
   const novo = { ...m, id: novoId(), tarefaId: tarefa ? tarefa.id : null, criado: Date.now(), melhorNota: null };
   if (tarefa && !novo.materia) novo.materia = tarefa.materia;
-  estado.materiais.push(novo); salvar(); renderMateriais(); abrirMaterial(novo.id);
+  estado.materiais.push(novo); salvar(); renderMateriais(); abrirMaterial(novo.id, aba);
 }
 
 /* ---------- tela do material ---------- */
@@ -636,9 +661,10 @@ function abrirMaterial(id, aba = "resumo") {
     <div class="topo"><b style="flex:1;margin-right:10px">${esc(m.titulo)}</b><button class="fechar" data-fechar>✕</button></div>
     <div class="pequeno">${esc([m.materia, t && t.data ? `${TIPOS[t.tipo]} ${textoQuando(t.data).toLowerCase()}` : ""].filter(Boolean).join(" · "))}</div>
     <div class="abas">
-      <button data-aba="resumo">📄 Resumo</button>
-      <button data-aba="flash">🃏 Flashcards</button>
-      <button data-aba="quiz">✅ Simulado</button>
+      <button data-aba="resumo">${m.banco ? "💡 Dicas" : "📄 Resumo"}</button>
+      ${m.banco ? "" : `<button data-aba="mapa">🗺️ Mapa</button>`}
+      ${m.flashcards.length ? `<button data-aba="flash">🃏 Cards</button>` : ""}
+      <button data-aba="quiz">✅ ${m.banco ? "Questões" : "Simulado"}</button>
     </div>
     <div id="conteudoAba"></div>
     <button class="botao fantasma" id="mExcluir" style="margin-top:18px;font-size:14px">Apagar este material</button>`);
@@ -656,12 +682,344 @@ function mostrarAba(m, aba) {
   if (aba === "resumo") {
     c.innerHTML = m.resumo.length
       ? `<div class="card"><ol class="resumo">${m.resumo.map((r) => `<li>${esc(r)}</li>`).join("")}</ol></div>
-         <div style="height:12px"></div><button class="botao secundario" id="irFlash">Já li, bora pros flashcards →</button>`
+         <div style="height:12px"></div><button class="botao secundario" id="irMapa">${m.banco ? "Resolver as questões →" : "Ver o mapa mental →"}</button>
+         ${blocoCurtiu(m)}`
       : `<p class="vazio">Sem resumo neste material.</p>`;
-    const b = $("#irFlash"); if (b) b.onclick = () => mostrarAba(m, "flash");
+    const b = $("#irMapa"); if (b) b.onclick = () => mostrarAba(m, m.banco ? "quiz" : "mapa");
+    ligarCurtiu(m);
   }
+  if (aba === "mapa") rodarMapa(m, c);
   if (aba === "flash") rodarFlashcards(m, c, m.flashcards.map((_, i) => i));
   if (aba === "quiz") rodarQuiz(m, c);
+}
+
+/* ---------- mapa mental (imagem) ---------- */
+function validarMapa(x, titulo) {
+  if (!x || !Array.isArray(x.ramos)) return null;
+  const ramos = x.ramos
+    .filter((r) => r && r.titulo)
+    .map((r) => ({ titulo: String(r.titulo).slice(0, 60), itens: (Array.isArray(r.itens) ? r.itens : []).map(String).filter(Boolean).slice(0, 5).map((i) => i.slice(0, 90)) }))
+    .slice(0, 6);
+  if (ramos.length < 2) return null;
+  return { centro: String(x.centro || titulo || "Tema").slice(0, 60), ramos };
+}
+
+// Sem internet / modo prévia: monta um mapa simples a partir do resumo
+function mapaLocal(m) {
+  const curto = (t, n) => { const p = String(t).split(/\s+/); return p.length > n ? p.slice(0, n).join(" ") + "…" : p.join(" "); };
+  if (m.flashcards.length >= 3) {
+    return {
+      centro: curto(m.titulo, 5),
+      ramos: m.flashcards.slice(0, 6).map((c) => ({ titulo: curto(c.frente.replace(/\?$/, ""), 5), itens: [curto(c.verso, 10)] })),
+    };
+  }
+  return {
+    centro: curto(m.titulo, 5),
+    ramos: m.resumo.slice(0, 6).map((t) => {
+      const [a, ...b] = t.split(/:\s+|\.\s+/);
+      return { titulo: curto(a, 4), itens: [curto(b.join(". ") || t, 10)] };
+    }),
+  };
+}
+
+let _medidor;
+function quebrarLinhas(texto, maxPx, fonte) {
+  _medidor = _medidor || document.createElement("canvas").getContext("2d");
+  _medidor.font = `${fonte} system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
+  const cabe = (t) => _medidor.measureText(t).width <= maxPx;
+  const palavras = String(texto).split(/\s+/).filter(Boolean); const linhas = []; let atual = "";
+  for (let p of palavras) {
+    while (!cabe(p) && p.length > 4) { // palavra enorme: corta
+      let k = p.length - 1; while (k > 3 && !cabe(p.slice(0, k) + "-")) k--;
+      if (atual) { linhas.push(atual); atual = ""; }
+      linhas.push(p.slice(0, k) + "-"); p = p.slice(k);
+    }
+    if (!atual) atual = p;
+    else if (cabe(atual + " " + p)) atual += " " + p;
+    else { linhas.push(atual); atual = p; }
+  }
+  if (atual) linhas.push(atual);
+  return linhas;
+}
+
+const CORES_MAPA = ["#5B3DF5", "#12B886", "#F76707", "#1C7ED6", "#D6336C", "#F59F00"];
+
+function svgMapa(mapa) {
+  const M = 40, W = 1600 + 2 * M, CX = W / 2, LH_ITEM = 30, LH_RAMO = 32, GAP_ITEM = 14, GAP_BLOCO = 44;
+  const xml = (t) => esc(t);
+  const centroL = quebrarLinhas(mapa.centro, 280, "900 34px");
+  const centroH = Math.max(120, centroL.length * 44 + 50);
+
+  const blocos = mapa.ramos.map((r, i) => {
+    const tl = quebrarLinhas(r.titulo, 220, "800 26px");
+    const ramoH = tl.length * LH_RAMO + 34;
+    const itens = r.itens.map((t) => { const l = quebrarLinhas(t, 266, "600 22px"); return { l, h: l.length * LH_ITEM + 22 }; });
+    const itensH = itens.reduce((a, b) => a + b.h, 0) + Math.max(0, itens.length - 1) * GAP_ITEM;
+    return { r, i, tl, ramoH, itens, h: Math.max(ramoH, itensH), cor: CORES_MAPA[i % CORES_MAPA.length], lado: i % 2 === 0 ? 1 : -1 };
+  });
+  const lados = { 1: blocos.filter((b) => b.lado === 1), "-1": blocos.filter((b) => b.lado === -1) };
+  const alturaLado = (l) => l.reduce((a, b) => a + b.h, 0) + Math.max(0, l.length - 1) * GAP_BLOCO;
+  const TOPO = 70, BASE = 80;
+  const H = Math.max(alturaLado(lados[1]), alturaLado(lados["-1"]), centroH) + TOPO + BASE;
+  const CY = TOPO + (H - TOPO - BASE) / 2;
+
+  let ligacoes = "", caixas = "";
+  for (const k of [1, -1]) {
+    const lista = lados[k];
+    let y = TOPO + (H - TOPO - BASE - alturaLado(lista)) / 2;
+    for (const b of lista) {
+      const ramoW = 250, itemW = 300;
+      const ramoX = k === 1 ? CX + 210 : CX - 210 - ramoW;
+      const itemX = k === 1 ? CX + 500 : CX - 500 - itemW;
+      const ramoY = y + (b.h - b.ramoH) / 2;
+      const ramoMY = ramoY + b.ramoH / 2;
+      // centro -> ramo
+      const x0 = CX + k * 160, x1 = k === 1 ? ramoX : ramoX + ramoW;
+      ligacoes += `<path d="M${x0},${CY} C${(x0 + x1) / 2},${CY} ${(x0 + x1) / 2},${ramoMY} ${x1},${ramoMY}" stroke="${b.cor}" stroke-width="7" fill="none" stroke-linecap="round"/>`;
+      caixas += `<rect x="${ramoX}" y="${ramoY}" width="${ramoW}" height="${b.ramoH}" rx="22" fill="${b.cor}"/>`;
+      b.tl.forEach((t, j) => {
+        caixas += `<text x="${ramoX + ramoW / 2}" y="${ramoY + 17 + LH_RAMO * (j + 0.78)}" text-anchor="middle" font-size="26" font-weight="800" fill="#fff">${xml(t)}</text>`;
+      });
+      // itens
+      const totalItens = b.itens.reduce((a, it) => a + it.h, 0) + Math.max(0, b.itens.length - 1) * GAP_ITEM;
+      let iy = y + (b.h - totalItens) / 2;
+      for (const it of b.itens) {
+        const mY = iy + it.h / 2;
+        const a0 = k === 1 ? ramoX + ramoW : ramoX, a1 = k === 1 ? itemX : itemX + itemW;
+        ligacoes += `<path d="M${a0},${ramoMY} C${(a0 + a1) / 2},${ramoMY} ${(a0 + a1) / 2},${mY} ${a1},${mY}" stroke="${b.cor}" stroke-width="3.5" fill="none" stroke-linecap="round" opacity="0.7"/>`;
+        caixas += `<rect x="${itemX}" y="${iy}" width="${itemW}" height="${it.h}" rx="16" fill="${b.cor}1F" stroke="${b.cor}" stroke-width="2.5"/>`;
+        it.l.forEach((t, j) => {
+          caixas += `<text x="${itemX + 16}" y="${iy + 11 + LH_ITEM * (j + 0.8)}" font-size="22" font-weight="600" fill="#1D1B2C">${xml(t)}</text>`;
+        });
+        iy += it.h + GAP_ITEM;
+      }
+      y += b.h + GAP_BLOCO;
+    }
+  }
+  const centro = `<rect x="${CX - 160}" y="${CY - centroH / 2}" width="320" height="${centroH}" rx="34" fill="#1D1B2C"/>` +
+    centroL.map((t, j) => `<text x="${CX}" y="${CY - (centroL.length * 44) / 2 + 44 * (j + 0.75)}" text-anchor="middle" font-size="34" font-weight="900" fill="#fff">${xml(t)}</text>`).join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif">
+<rect width="${W}" height="${H}" fill="#FFFFFF"/>
+<text x="40" y="48" font-size="24" font-weight="800" fill="#5B3DF5">Mapa mental</text>
+${ligacoes}${caixas}${centro}
+<text x="${W - 40}" y="${H - 30}" text-anchor="end" font-size="20" font-weight="700" fill="#9A96AE">Feito com Estudaí</text>
+</svg>`;
+}
+
+function pngMapa(mapa) {
+  return new Promise((ok, erro) => {
+    const svg = svgMapa(mapa);
+    const img = new Image();
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = img.width; c.height = img.height;
+      const ctx = c.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      c.toBlob((b) => (b ? ok(b) : erro(new Error("Não consegui gerar a imagem."))), "image/png");
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); erro(new Error("Não consegui gerar a imagem.")); };
+    img.src = url;
+  });
+}
+
+function nomeArquivo(t) {
+  return "mapa-" + String(t).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) + ".png";
+}
+
+async function rodarMapa(m, c) {
+  if (!m.mapa) {
+    c.innerHTML = `<div class="card" style="text-align:center">
+        <div style="font-size:40px">🗺️</div>
+        <p>Transforme o resumo num mapa mental em forma de imagem, pra revisar rapidinho ou mandar pros amigos.</p>
+        <button class="botao primario" id="mCriar" ${m.resumo.length ? "" : "disabled"}>✨ Criar mapa mental</button>
+      </div>`;
+    const b = $("#mCriar"); if (!b) return;
+    b.onclick = async () => {
+      const parar = carregando("Desenhando seu mapa mental…");
+      try {
+        const r = await chamarIA({ modo: "mapa", titulo: m.titulo, texto: m.resumo.join("\n") });
+        parar();
+        const mapa = validarMapa(r.mapa, m.titulo);
+        if (!mapa) { toast(r.erro || "Não consegui montar o mapa. Tente de novo.", 4000); return; }
+        m.mapa = mapa;
+      } catch (e) {
+        parar();
+        if (e.message !== "SEM_SERVIDOR") { toast(e.message, 4000); return; }
+        m.mapa = mapaLocal(m); // modo prévia
+      }
+      salvar(); rodarMapa(m, c);
+    };
+    return;
+  }
+  c.innerHTML = `<div class="mapa-caixa" id="mapaCaixa"><div class="vazio">Desenhando…</div></div>
+    <p class="pequeno" style="text-align:center">Toque na imagem para ampliar.</p>
+    <div class="linha">
+      <button class="botao primario" id="mBaixar">⬇️ Baixar imagem</button>
+      ${navigator.share ? `<button class="botao secundario" id="mShare">📤 Enviar</button>` : ""}
+    </div>
+    <div style="height:8px"></div>
+    <button class="botao fantasma" id="mRefazer" style="font-size:14px">🔄 Fazer outro mapa</button>
+    ${blocoCurtiu(m)}`;
+  ligarCurtiu(m);
+  let blob;
+  try { blob = await pngMapa(m.mapa); }
+  catch (e) { $("#mapaCaixa").innerHTML = `<div class="vazio">${esc(e.message)}</div>`; return; }
+  if (!document.body.contains(c)) return;
+  const url = URL.createObjectURL(blob);
+  const caixa = $("#mapaCaixa");
+  caixa.innerHTML = `<img src="${url}" alt="Mapa mental: ${esc(m.mapa.centro)}">`;
+  caixa.onclick = () => caixa.classList.toggle("zoom");
+  const arquivo = nomeArquivo(m.titulo);
+  $("#mBaixar").onclick = () => {
+    const a = document.createElement("a"); a.href = url; a.download = arquivo;
+    document.body.appendChild(a); a.click(); a.remove();
+    toast("Imagem salva! Confira nos downloads ou na galeria.");
+  };
+  const sh = $("#mShare");
+  if (sh) sh.onclick = async () => {
+    const file = new File([blob], arquivo, { type: "image/png" });
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) await navigator.share({ files: [file], title: m.titulo });
+      else await navigator.share({ title: m.titulo, text: `Mapa mental: ${m.titulo}` });
+    } catch (e) {}
+  };
+  $("#mRefazer").onclick = () => { m.mapa = null; salvar(); rodarMapa(m, c); };
+}
+
+/* ---------- feedback ---------- */
+const AREAS_FEEDBACK = [["geral", "O app todo"], ["agenda", "Agenda por foto"], ["cronograma", "Cronograma"], ["resumo", "Resumo"], ["mapa", "Mapa mental"], ["flashcards", "Flashcards"], ["simulado", "Simulado"], ["ideia", "💡 Ideia nova"], ["problema", "🐞 Deu erro"]];
+const CARINHAS = ["😡", "😕", "😐", "🙂", "😍"];
+
+function blocoCurtiu(m) {
+  return `<div class="curtiu"><span>Esse material ficou bom?</span><span class="bt"><button data-curtiu="5" aria-label="Gostei">👍</button><button data-curtiu="2" aria-label="Não gostei">👎</button></span></div>`;
+}
+function ligarCurtiu(m) {
+  document.querySelectorAll("[data-curtiu]").forEach((b) => b.onclick = () =>
+    abrirFeedback({ nota: +b.dataset.curtiu, area: m.banco ? "simulado" : "resumo", contexto: `Material: ${m.titulo}`, voltar: () => abrirMaterial(m.id) }));
+}
+
+function abrirFeedback(op = {}) {
+  let nota = op.nota || null, area = op.area || "geral";
+  abrirModal(`
+    <div class="topo"><b>Sua opinião 💬</b><button class="fechar" data-fechar>✕</button></div>
+    <p class="pequeno" style="margin-top:0">O Estudaí está em teste. O que você disser ajuda a deixar o app melhor!</p>
+    ${op.contexto ? `<div class="pequeno"><b>Sobre:</b> ${esc(op.contexto)}</div>` : ""}
+    <label class="campo">O que você está achando?</label>
+    <div class="carinhas">${CARINHAS.map((c, i) => `<button data-nota="${i + 1}" class="${nota === i + 1 ? "ativo" : ""}" aria-label="Nota ${i + 1}">${c}</button>`).join("")}</div>
+    <label class="campo">Sobre o quê?</label>
+    <div class="chips">${AREAS_FEEDBACK.map(([k, v]) => `<button data-area="${k}" class="${area === k ? "ativo" : ""}">${v}</button>`).join("")}</div>
+    <label class="campo">Conta pra gente (opcional)</label>
+    <textarea id="fbTexto" maxlength="2000" placeholder="O que você mais gostou? O que ficou confuso? O que faltou?"></textarea>
+    <label class="campo">Seu primeiro nome ou série (opcional)</label>
+    <input type="text" id="fbNome" maxlength="60" placeholder="Ex.: Ana, 8º ano">
+    <p class="pequeno">Não escreva telefone, endereço ou outros dados pessoais.</p>
+    <button class="botao primario" id="fbEnviar">Enviar</button>`);
+  document.querySelectorAll("[data-nota]").forEach((b) => b.onclick = () => {
+    nota = +b.dataset.nota; document.querySelectorAll("[data-nota]").forEach((x) => x.classList.toggle("ativo", x === b));
+  });
+  document.querySelectorAll("[data-area]").forEach((b) => b.onclick = () => {
+    area = b.dataset.area; document.querySelectorAll("[data-area]").forEach((x) => x.classList.toggle("ativo", x === b));
+  });
+  $("#fbEnviar").onclick = async () => {
+    const texto = $("#fbTexto").value.trim();
+    if (!nota && !texto) { toast("Escolha uma carinha ou escreva algo 🙂"); return; }
+    const item = { nota, area, texto, nome: $("#fbNome").value.trim(), contexto: op.contexto || "" };
+    $("#fbEnviar").disabled = true;
+    const ok = await enviarFeedback(item);
+    fecharModal();
+    toast(ok ? "Valeu pela opinião! 💜" : "Valeu! Vou enviar assim que tiver internet. 💜", 3200);
+    if (op.voltar) op.voltar();
+  };
+}
+
+async function enviarFeedback(item) {
+  try {
+    const r = await fetch("/api/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(item) });
+    if (r.ok) return true;
+    if (r.status === 400) return true; // pedido inválido: não adianta tentar de novo
+  } catch (e) {}
+  estado.feedbacksPendentes = [...(estado.feedbacksPendentes || []), item].slice(-20);
+  salvar();
+  return false;
+}
+
+async function reenviarFeedbacks() {
+  const fila = estado.feedbacksPendentes || [];
+  if (!fila.length || !navigator.onLine) return;
+  estado.feedbacksPendentes = [];
+  salvar();
+  for (const item of fila) {
+    try {
+      const r = await fetch("/api/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(item) });
+      if (!r.ok && r.status !== 400) throw new Error();
+    } catch (e) {
+      estado.feedbacksPendentes = [...(estado.feedbacksPendentes || []), item];
+    }
+  }
+  salvar();
+}
+$("#btnFeedback").onclick = () => abrirFeedback();
+
+/* ---------- banco de questões: ENEM e olimpíadas ---------- */
+const OLIMPIADAS = [
+  ["obmep", "OBMEP", "Matemática"], ["obm", "OBM", "Matemática"], ["canguru", "Canguru de Matemática", "Matemática"],
+  ["oba", "OBA (Astronomia)", "Ciências"], ["obf", "OBF (Física)", "Física"], ["obq", "OBQ (Química)", "Química"],
+  ["obb", "OBB (Biologia)", "Biologia"], ["obr", "OBR (Robótica)", "Robótica"], ["obl", "OBL (Linguística)", "Linguística"],
+  ["onhb", "ONHB (História do Brasil)", "História"], ["olp", "Olimpíada de Língua Portuguesa", "Português"], ["obi", "OBI (Informática)", "Informática"],
+];
+const AREAS_ENEM = ["Matemática", "Linguagens (Português, Literatura, Inglês/Espanhol)", "Ciências da Natureza (Física, Química, Biologia)", "Ciências Humanas (História, Geografia, Filosofia, Sociologia)"];
+const SERIES = ["6º ano", "7º ano", "8º ano", "9º ano", "1ª série do médio", "2ª série do médio", "3ª série do médio"];
+
+function abrirBanco(tipo) {
+  const enem = tipo === "enem";
+  abrirModal(`
+    <div class="topo"><b>${enem ? "🎯 Questões estilo ENEM" : "🏅 Olimpíadas"}</b><button class="fechar" data-fechar>✕</button></div>
+    <p class="pequeno" style="margin-top:0">A IA cria questões novas, parecidas com as da prova, com gabarito e explicação.</p>
+    ${enem
+      ? `<label class="campo">Área</label><select id="bArea">${AREAS_ENEM.map((a) => `<option>${esc(a)}</option>`).join("")}</select>`
+      : `<label class="campo">Qual olimpíada?</label><select id="bProva">${OLIMPIADAS.map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")}</select>
+         <label class="campo">Sua série</label><select id="bSerie">${SERIES.map((x) => `<option ${x === "8º ano" ? "selected" : ""}>${x}</option>`).join("")}</select>`}
+    <label class="campo">Assunto (opcional)</label>
+    <input type="text" id="bAssunto" maxlength="120" placeholder="${enem ? "Ex.: porcentagem, ecologia, Era Vargas" : "Ex.: geometria, contagem, Sistema Solar"}">
+    <label class="campo">Quantas questões?</label>
+    <select id="bQtd"><option>5</option><option selected>10</option><option>15</option></select>
+    <p class="pequeno">As questões são criadas pela IA no estilo da prova. Não são questões oficiais.</p>
+    <button class="botao primario" id="bGerar">✨ Gerar banco de questões</button>`);
+  $("#bGerar").onclick = async () => {
+    const prova = enem ? "enem" : $("#bProva").value;
+    const nomeProva = enem ? "ENEM" : OLIMPIADAS.find((o) => o[0] === prova)[1];
+    const area = enem ? $("#bArea").value : OLIMPIADAS.find((o) => o[0] === prova)[2];
+    const corpo = { modo: "banco", prova, area, serie: enem ? "3ª série do médio" : $("#bSerie").value, assunto: $("#bAssunto").value.trim(), quantidade: +$("#bQtd").value };
+    const parar = carregando(`Criando questões estilo ${nomeProva}…`);
+    try {
+      const r = await chamarIA(corpo);
+      parar();
+      if (r.erro) { toast(r.erro, 4500); return; }
+      const m = validarMaterial(r);
+      if (!m || !m.quiz.length) { toast("Não consegui montar as questões. Tente de novo.", 4500); return; }
+      m.titulo = `${nomeProva}: ${corpo.assunto || m.titulo}`.slice(0, 80);
+      m.materia = m.materia || area.split(" (")[0];
+      m.banco = prova;
+      fecharModal(); salvarMaterial(m, null, "quiz");
+    } catch (e) {
+      parar();
+      erroIA(e, () => { fecharModal(); salvarMaterial({ ...DEMO_BANCO(nomeProva), banco: prova }, null, "quiz"); });
+    }
+  };
+}
+
+function DEMO_BANCO(nome) {
+  return {
+    titulo: `${nome}: exemplo`, materia: "Matemática", mapa: null, flashcards: [],
+    resumo: ["Leia o enunciado inteiro antes de olhar as alternativas.", "Elimine as alternativas absurdas primeiro.", "Faça um desenho ou tabela quando o problema tiver muitos dados.", "Não fique preso numa questão: marque e volte depois."],
+    quiz: [
+      { pergunta: "Uma loja dá 20% de desconto numa camiseta de R$ 50,00. Quanto a pessoa paga?", opcoes: ["R$ 30,00", "R$ 40,00", "R$ 45,00", "R$ 10,00", "R$ 48,00"], correta: 1, explicacao: "20% de 50 é 10. Então 50 − 10 = R$ 40,00." },
+      { pergunta: "Ana tem o dobro da idade de Bia. Juntas, têm 36 anos. Qual a idade de Ana?", opcoes: ["12", "18", "24", "30", "20"], correta: 2, explicacao: "Bia = x e Ana = 2x. Então 3x = 36, x = 12 e Ana tem 24 anos." },
+      { pergunta: "Quantos números de dois algarismos têm os dois algarismos iguais?", opcoes: ["8", "9", "10", "11", "18"], correta: 1, explicacao: "São 11, 22, 33, …, 99: nove números." },
+    ],
+  };
 }
 
 /* ---------- flashcards ---------- */
@@ -710,8 +1068,12 @@ function rodarQuiz(m, c) {
       if (recorde) { m.melhorNota = nota; salvar(); }
       const frase = nota >= 90 ? "Pronto pra prova! 🏆" : nota >= 70 ? "Muito bom! Revise os erros e vai com tudo 💪" : nota >= 50 ? "Tá no caminho. Revê os flashcards e tenta de novo 📚" : "Calma, estudar é isso mesmo. Lê o resumo e tenta de novo 🙂";
       c.innerHTML = `<div class="card placar"><div class="n">${nota}%</div><p><b>${acertos} de ${m.quiz.length}</b> certas${recorde && pos > 0 ? " · novo recorde!" : ""}</p><p>${frase}</p></div>
-        <div style="height:12px"></div><button class="botao primario" id="qDeNovo">Fazer de novo</button>`;
+        <div style="height:12px"></div><button class="botao primario" id="qDeNovo">Fazer de novo</button>
+        ${m.banco ? `<div style="height:8px"></div><button class="botao secundario" id="qMais">➕ Gerar mais questões</button>` : ""}
+        ${blocoCurtiu(m)}`;
       $("#qDeNovo").onclick = () => rodarQuiz(m, c);
+      const mais = $("#qMais"); if (mais) mais.onclick = () => abrirBanco(m.banco === "enem" ? "enem" : "olimpiada");
+      ligarCurtiu(m);
       return;
     }
     const q = m.quiz[pos];
@@ -720,7 +1082,7 @@ function rodarQuiz(m, c) {
     c.innerHTML = `
       <div class="pequeno">Pergunta ${pos + 1} de ${m.quiz.length} · ${acertos} certas</div>
       <div class="progresso"><div style="width:${(pos / m.quiz.length) * 100}%"></div></div>
-      <div class="card" style="margin-top:10px"><b style="font-size:17px">${esc(q.pergunta)}</b></div>
+      <div class="card" style="margin-top:10px;white-space:pre-wrap;font-size:${q.pergunta.length > 220 ? 16 : 17}px;font-weight:${q.pergunta.length > 220 ? 500 : 700}">${esc(q.pergunta)}</div>
       <div id="qOpcoes">${ordem.map((i, k) => `<button class="opcao" data-op="${i}">${"ABCDEF"[k] || k + 1}) ${esc(q.opcoes[i])}</button>`).join("")}</div>
       <div id="qDepois"></div>`;
     document.querySelectorAll("[data-op]").forEach((b) => b.onclick = () => {
@@ -1155,6 +1517,17 @@ function DEMO_MATERIAL() {
       { pergunta: "Quanto é 2/3 × 3/5?", opcoes: ["6/15 = 2/5", "5/8", "6/8", "5/15"], correta: 0, explicacao: "2×3 = 6 e 3×5 = 15. Simplificando 6/15 por 3, fica 2/5." },
       { pergunta: "Qual é a forma simplificada de 10/15?", opcoes: ["5/10", "1/3", "3/2", "2/3"], correta: 3, explicacao: "Dividindo os dois por 5: 10/15 = 2/3." },
     ],
+    mapa: {
+      centro: "Frações",
+      ramos: [
+        { titulo: "O que é", itens: ["Partes de um inteiro", "Numerador: partes tomadas", "Denominador: partes do inteiro"] },
+        { titulo: "Equivalência", itens: ["1/2 = 2/4 = 3/6", "Multiplica ou divide os dois"] },
+        { titulo: "Simplificar", itens: ["Divide em cima e embaixo", "6/8 = 3/4"] },
+        { titulo: "Somar e subtrair", itens: ["Mesmo denominador: opera numeradores", "Diferentes: usar o MMC"] },
+        { titulo: "Multiplicar e dividir", itens: ["Multiplica em linha", "Divisão: inverte a segunda"] },
+        { titulo: "Tipos", itens: ["Própria: numerador menor", "Imprópria: 7/4", "Número misto: 1 e 3/4"] },
+      ],
+    },
   };
 }
 
@@ -1163,6 +1536,8 @@ function DEMO_MATERIAL() {
    ============================================================ */
 $("#dataHoje").textContent = new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "short" });
 renderAgenda();
+reenviarFeedbacks();
+window.addEventListener("online", reenviarFeedbacks);
 if ("serviceWorker" in navigator && location.protocol === "https:") {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
