@@ -7,6 +7,9 @@
 //   GEMINI_MODEL    -> opcional; sem ela usa gemini-flash-latest (igual ao ResumAI)
 
 const { sortearQuestoes } = require("./_enem");
+const { limparTudo } = require("./_texto");
+
+const REGRA_TEXTO = `Regra de escrita: NÃO use LaTeX, cifrões ($) nem barras invertidas para fórmulas. Escreva fórmulas em texto simples com símbolos Unicode: × ÷ · ² ³ √ π ≤ ≥ ≠ ≈ ° Δ (ex.: "S = (n − 2) × 180°", "x² − 5x + 6 = 0", "1/2"). Use "R$" só para dinheiro.`;
 
 // Mesmos apelidos usados no ResumAI: o Google mantém apontando para o modelo mais recente.
 const MODELOS_RESERVA = ["gemini-flash-latest", "gemini-flash-lite-latest"];
@@ -244,7 +247,7 @@ async function perguntarIA(chave, partes) {
   let ultimoErro = "Não foi possível falar com a IA.";
   for (const modelo of modelos) {
     let r;
-    try { r = await chamarGemini(chave, modelo, partes); }
+    try { r = await chamarGemini(chave, modelo, [...partes, { text: REGRA_TEXTO }]); }
     catch { ultimoErro = "Falha de conexão com a IA."; continue; }
 
     if (r.status === 404 || r.status === 400 && /not found|not supported/i.test(r.corpo?.error?.message || "")) {
@@ -259,7 +262,7 @@ async function perguntarIA(chave, partes) {
     const txt = (cand?.content?.parts || []).map((p) => p.text || "").join("");
     const json = extrairJSON(txt);
     if (!json) { ultimoErro = "A IA respondeu num formato inesperado. Tente de novo."; continue; }
-    return { status: 200, json: { ...json, _modelo: modelo } };
+    return { status: 200, json: { ...limparTudo(json), _modelo: modelo } };
   }
   return { status: 502, erro: ultimoErro };
 }
@@ -309,7 +312,7 @@ Responda SOMENTE com JSON: {"explicacoes":["explicação da questão 1", "..."]}
     q.fixo = true; // mantém a ordem A–E da prova
   });
 
-  return resposta(200, {
+  return resposta(200, limparTudo({
     titulo, materia: NOMES_AREA[area], aviso,
     resumo: [
       "Leia primeiro o comando (a pergunta) e depois o texto-base: assim você já sabe o que procurar.",
@@ -319,7 +322,7 @@ Responda SOMENTE com JSON: {"explicacoes":["explicação da questão 1", "..."]}
     ],
     flashcards: [],
     quiz: questoes,
-  });
+  }));
 }
 
 async function bancoEnemParecido(chave, d) {
