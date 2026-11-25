@@ -1,11 +1,15 @@
 // Estudaí — recebe o feedback dos alunos (Vercel Serverless Function).
 //
-// Cada feedback sempre aparece nos logs da Vercel (Project > Logs, procure "FEEDBACK").
-// Para guardar numa planilha, crie a variável de ambiente:
-//   FEEDBACK_URL -> endereço do Apps Script da planilha do Google (veja o README)
-//                   ou de um webhook do Discord.
+// Onde o feedback fica:
+//   1. Tabela "estudai_feedback" do Supabase (igual ao ResumAI) — precisa das variáveis
+//      SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY (veja o README).
+//   2. Sempre aparece também nos logs da Vercel (Project > Logs, procure "FEEDBACK").
+//   3. Opcional: FEEDBACK_URL -> planilha do Google (Apps Script) ou webhook do Discord.
 
-const AREAS = ["geral", "agenda", "cronograma", "resumo", "mapa", "flashcards", "simulado", "ideia", "problema"];
+const { inserir } = require("./_supabase");
+const { conferirComentario } = require("./_moderacao");
+
+const AREAS = ["geral", "agenda", "cronograma", "resumo", "mapa", "flashcards", "simulado", "enem", "olimpiadas", "ideia", "problema"];
 
 function limpar(v, max) {
   return String(v ?? "").replace(/\s+/g, " ").trim().slice(0, max);
@@ -26,17 +30,31 @@ module.exports = async (req, res) => {
   const texto = limpar(d.texto, 2000);
   if (!nota && !texto) return responder(400, { erro: "Escolha uma carinha ou escreva algo." });
 
+  const nome = limpar(d.nome, 60);
+  const problema = conferirComentario(texto) || conferirComentario(nome);
+  if (problema) return responder(400, { erro: problema });
+
   const item = {
     data: new Date().toISOString(),
     nota,
     area: AREAS.includes(d.area) ? d.area : "geral",
     texto,
-    nome: limpar(d.nome, 60),
+    nome,
     contexto: limpar(d.contexto, 200),
     aparelho: limpar(req.headers["user-agent"], 160),
   };
 
   console.log("FEEDBACK", JSON.stringify(item));
+
+  await inserir("estudai_feedback", {
+    nota: item.nota,
+    area: item.area,
+    texto: item.texto || null,
+    nome: item.nome || null,
+    contexto: item.contexto || null,
+    aparelho: item.aparelho || null,
+    visitante: limpar(d.visitante, 40) || null,
+  });
 
   const url = process.env.FEEDBACK_URL;
   if (url) {

@@ -361,6 +361,7 @@ async function chamarIA(corpo) {
   if (r.status === 404) throw new Error("SEM_SERVIDOR");
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.erro || "A IA não respondeu. Tente de novo.");
+  registrarUso(corpo.modo, [corpo.prova, corpo.area].filter(Boolean).join(" · "));
   return j;
 }
 function erroIA(e, demo) {
@@ -1110,8 +1111,30 @@ async function rodarMapa(m, c) {
   $("#mRefazer").onclick = () => { m.mapa = null; salvar(); rodarMapa(m, c); };
 }
 
+/* ---------- uso (estatísticas anônimas, igual ao ResumAI) ---------- */
+// Cada aparelho recebe um código aleatório; não guardamos nome, e-mail, fotos nem textos.
+function codigoVisitante() {
+  try {
+    let v = localStorage.getItem("estudai-visitante");
+    if (!v) {
+      v = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2, 12));
+      localStorage.setItem("estudai-visitante", v);
+    }
+    return v;
+  } catch (e) { return "sem-armazenamento"; }
+}
+function registrarUso(evento, detalhe = "") {
+  if (location.protocol !== "https:") return; // não conta testes no computador
+  const corpo = JSON.stringify({ evento, detalhe: String(detalhe || "").slice(0, 80), visitante: codigoVisitante() });
+  try {
+    if (navigator.sendBeacon && navigator.sendBeacon("/api/uso", new Blob([corpo], { type: "application/json" }))) return;
+    fetch("/api/uso", { method: "POST", headers: { "content-type": "application/json" }, body: corpo, keepalive: true }).catch(() => {});
+  } catch (e) {}
+}
+window.addEventListener("appinstalled", () => registrarUso("instalou"));
+
 /* ---------- feedback ---------- */
-const AREAS_FEEDBACK = [["geral", "O app todo"], ["agenda", "Agenda por foto"], ["cronograma", "Cronograma"], ["resumo", "Resumo"], ["mapa", "Mapa mental"], ["flashcards", "Flashcards"], ["simulado", "Simulado"], ["ideia", "💡 Ideia nova"], ["problema", "🐞 Deu erro"]];
+const AREAS_FEEDBACK = [["geral", "O app todo"], ["agenda", "Agenda por foto"], ["cronograma", "Cronograma"], ["resumo", "Resumo"], ["mapa", "Mapa mental"], ["flashcards", "Flashcards"], ["simulado", "Simulado"], ["enem", "ENEM / Olimpíadas"], ["ideia", "💡 Ideia nova"], ["problema", "🐞 Deu erro"]];
 const CARINHAS = ["😡", "😕", "😐", "🙂", "😍"];
 
 function blocoCurtiu(m) {
@@ -1150,6 +1173,7 @@ function abrirFeedback(op = {}) {
     const item = { nota, area, texto, nome: $("#fbNome").value.trim(), contexto: op.contexto || "" };
     $("#fbEnviar").disabled = true;
     const ok = await enviarFeedback(item);
+    if (typeof ok === "string") { $("#fbEnviar").disabled = false; toast(ok, 4000); return; }
     fecharModal();
     toast(ok ? "Valeu pela opinião! 💜" : "Valeu! Vou enviar assim que tiver internet. 💜", 3200);
     if (op.voltar) op.voltar();
@@ -1157,10 +1181,14 @@ function abrirFeedback(op = {}) {
 }
 
 async function enviarFeedback(item) {
+  item = { ...item, visitante: codigoVisitante() };
   try {
     const r = await fetch("/api/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(item) });
     if (r.ok) return true;
-    if (r.status === 400) return true; // pedido inválido: não adianta tentar de novo
+    if (r.status === 400) { // pedido recusado (ex.: palavrão, link, telefone): mostra o motivo
+      const j = await r.json().catch(() => ({}));
+      return j.erro || true;
+    }
   } catch (e) {}
   estado.feedbacksPendentes = [...(estado.feedbacksPendentes || []), item].slice(-20);
   salvar();
@@ -1293,6 +1321,7 @@ function rodarFlashcards(m, c, fila) {
   const passo = () => {
     if (pos >= fila.length) {
       const acertos = fila.length - errei.length;
+      registrarUso("flashcards_fim", `${acertos}/${fila.length}`);
       c.innerHTML = `<div class="card placar"><div class="n">${acertos}/${fila.length}</div>
         <p>${errei.length ? `Você ainda está aprendendo ${errei.length} ${errei.length === 1 ? "cartão" : "cartões"}.` : "Você sabe todos! 🎉"}</p></div>
         <div style="height:12px"></div>
@@ -1336,6 +1365,7 @@ function rodarQuiz(m, c) {
   const passo = () => {
     if (pos >= m.quiz.length) {
       const nota = Math.round((acertos / m.quiz.length) * 100);
+      registrarUso("simulado_fim", `${m.banco ? "questoes" : "caderno"} ${nota}%`);
       const recorde = m.melhorNota == null || nota > m.melhorNota;
       if (recorde) { m.melhorNota = nota; salvar(); }
       const frase = nota >= 90 ? "Pronto pra prova! 🏆" : nota >= 70 ? "Muito bom! Revise os erros e vai com tudo 💪" : nota >= 50 ? "Tá no caminho. Revê os flashcards e tenta de novo 📚" : "Calma, estudar é isso mesmo. Lê o resumo e tenta de novo 🙂";
@@ -1812,6 +1842,7 @@ function DEMO_MATERIAL() {
    ============================================================ */
 $("#dataHoje").textContent = new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "short" });
 renderAgenda();
+registrarUso("abriu", window.matchMedia && matchMedia("(display-mode: standalone)").matches ? "app instalado" : "navegador");
 reenviarFeedbacks();
 window.addEventListener("online", reenviarFeedbacks);
 if ("serviceWorker" in navigator && location.protocol === "https:") {

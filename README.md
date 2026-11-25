@@ -18,7 +18,10 @@ Esta primeira versão de teste não tem login nem pagamento. Os dados ficam salv
 |---|---|
 | `index.html` | O app inteiro (telas e lógica) |
 | `api/ia.js` | Ponte segura com o Gemini (a chave fica escondida aqui) |
-| `api/feedback.js` | Recebe as opiniões dos alunos |
+| `api/feedback.js` | Recebe as opiniões dos alunos e grava no Supabase |
+| `api/uso.js` | Conta o uso do app (anônimo) e grava no Supabase |
+| `api/_supabase.js`, `api/_moderacao.js` | Gravação no Supabase e filtro de palavrões/links/telefone |
+| `supabase/estudai.sql` | Tabelas e painéis para colar no Supabase |
 | `api/_enem.js` | Busca as questões oficiais do ENEM (base pública enem.dev) |
 | `vercel.json` | Configuração da Vercel |
 | `manifest.json`, `sw.js`, `icon*.png`, `icon.svg` | Permitem instalar o app na tela inicial do celular |
@@ -37,23 +40,33 @@ Antes de configurar a chave, o app abre em **modo prévia**: ao tirar uma foto, 
 
 Observação: na Vercel, cada pedido à IA pode ter no máximo 4,5 MB. O app já reduz as fotos antes de enviar, e 6 páginas cabem com folga.
 
-## Onde ver os feedbacks
+## Onde ver os feedbacks e quem está usando (Supabase, igual ao ResumAI)
 
-Todo feedback aparece em **Vercel → projeto → Logs** (busque por `FEEDBACK`). Os logs somem depois de um tempo, então vale mandar tudo para uma planilha:
+O app grava tudo no Supabase, em quatro painéis prontos:
 
-1. Crie uma planilha no Google Sheets e abra **Extensões → Apps Script**.
-2. Apague o que estiver lá e cole:
-   ```js
-   function doPost(e) {
-     const d = JSON.parse(e.postData.contents);
-     const aba = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
-     if (aba.getLastRow() === 0) aba.appendRow(["Data", "Nota (1-5)", "Sobre", "Texto", "Nome/série", "Contexto", "Aparelho"]);
-     aba.appendRow([d.data, d.nota, d.area, d.texto, d.nome, d.contexto, d.aparelho]);
-     return ContentService.createTextOutput("ok");
-   }
-   ```
-3. Clique em **Implantar → Nova implantação → Tipo: App da Web**, com "Executar como: eu" e "Quem pode acessar: qualquer pessoa". Autorize e copie o URL.
-4. Na Vercel, crie a variável `FEEDBACK_URL` com esse URL e faça um **Redeploy**.
+| Painel (Table Editor) | O que mostra |
+|---|---|
+| `estudai_numeros` | Total de pessoas, quantas voltaram outro dia, ativas e novas nos últimos 7 dias, nº de feedbacks e nota média |
+| `estudai_uso_por_dia` | Por dia: pessoas diferentes, aberturas, fotos da agenda, cronogramas, materiais do caderno, mapas, simulados feitos, ENEM/olimpíadas |
+| `estudai_uso_funcoes` | Ranking das funções mais usadas nos últimos 30 dias |
+| `estudai_feedback_resumo` | Opiniões por assunto: total, nota média, quem gostou/não gostou e comentários novos |
+
+A tabela `estudai_feedback` tem cada opinião completa (carinha, assunto, texto, nome/série). Use a coluna `status` (novo, em_analise, resolvido, ignorado) e `observacao` para organizar. A tabela `estudai_uso` tem cada evento.
+
+**Privacidade (ECA Digital):** o uso é anônimo. Cada aparelho recebe um código aleatório, e não guardamos nome, e-mail, fotos nem textos do caderno. Os comentários com palavrão, link, telefone ou e-mail são recusados.
+
+### Como ligar (uma vez só)
+
+1. **Supabase:** abra o projeto do ResumAI (ou crie um novo) → **SQL Editor → New query**, cole todo o arquivo `supabase/estudai.sql` e clique em **Run**. As tabelas têm o prefixo `estudai_` e não misturam com o ResumAI.
+2. Em **Project Settings → API**, copie o **Project URL** e a chave **service_role** (é secreta: nunca coloque no `index.html`).
+3. **Vercel → projeto → Settings → Environment Variables**, crie:
+   - `SUPABASE_URL` = o Project URL
+   - `SUPABASE_SERVICE_ROLE_KEY` = a chave service_role
+4. **Deployments → ⋯ → Redeploy.**
+
+Para testar: abra o site, use alguma função e mande uma opinião. Em seguida, confira `estudai_numeros` e `estudai_feedback` no Supabase. Se nada aparecer, procure `SUPABASE_ERRO` em **Vercel → Logs**.
+
+Os feedbacks continuam aparecendo também em **Vercel → Logs** (busque por `FEEDBACK`). Se quiser receber no Discord ou numa planilha do Google, crie a variável `FEEDBACK_URL` com o webhook do Discord ou o URL de um Apps Script (opcional).
 
 Se o aluno estiver sem internet, o feedback fica guardado no celular e é enviado depois.
 
