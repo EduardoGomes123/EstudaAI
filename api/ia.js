@@ -6,6 +6,8 @@
 //   GEMINI_API_KEY  -> obrigatória (pegue grátis em aistudio.google.com)
 //   GEMINI_MODEL    -> opcional; sem ela usa gemini-flash-latest (igual ao ResumAI)
 
+const { sortearQuestoes } = require("./_enem");
+
 // Mesmos apelidos usados no ResumAI: o Google mantém apontando para o modelo mais recente.
 const MODELOS_RESERVA = ["gemini-flash-latest", "gemini-flash-lite-latest"];
 const MAX_FOTOS = 6;
@@ -171,17 +173,29 @@ module.exports = async (req, res) => {
   if (req.method !== "POST") return resposta(405, { erro: "Use POST." });
 
   const chave = process.env.GEMINI_API_KEY;
-  if (!chave) return resposta(500, { erro: "A chave GEMINI_API_KEY não foi configurada na Vercel." });
 
   let dados = req.body;
   if (typeof dados === "string") { try { dados = JSON.parse(dados); } catch { return resposta(400, { erro: "Pedido inválido." }); } }
 
   const { modo, fotos, hoje, materia, assunto } = dados || {};
-  if (!["agenda", "estudo", "horario", "mapa", "banco"].includes(modo)) return resposta(400, { erro: "Modo inválido." });
+  if (!["agenda", "estudo", "horario", "mapa", "banco", "enem"].includes(modo)) return resposta(400, { erro: "Modo inválido." });
+
+  // Questões oficiais do ENEM funcionam mesmo sem a chave (só ficam sem explicação da IA)
+  if (modo === "enem") {
+    try { return await modoEnem(chave, dados); }
+    catch (e) { return resposta(502, { erro: "Não consegui buscar questões do ENEM agora. Tente de novo." }); }
+  }
+
+  if (!chave) return resposta(500, { erro: "A chave GEMINI_API_KEY não foi configurada na Vercel." });
 
   if (modo === "banco") {
     const prova = String(dados.prova || "");
     if (!PROVAS[prova]) return resposta(400, { erro: "Escolha a prova ou olimpíada." });
+    if (prova === "enem" && dados.area_id) {
+      const r = await bancoEnemParecido(chave, { ...dados, area: dados.area_id });
+      if (r && r.erro) return resposta(r.status || 502, { erro: r.erro });
+      if (r) return resposta(200, r);
+    }
     const quantidade = Math.min(15, Math.max(5, parseInt(dados.quantidade, 10) || 10));
     const texto = promptBanco({
       prova, quantidade,
@@ -225,9 +239,8 @@ module.exports = async (req, res) => {
   return responderComIA(chave, partes);
 };
 
-async function responderComIA(chave, partes) {
+async function perguntarIA(chave, partes) {
   const modelos = [process.env.GEMINI_MODEL, ...MODELOS_RESERVA].filter((m, i, a) => m && a.indexOf(m) === i);
-
   let ultimoErro = "Não foi possível falar com a IA.";
   for (const modelo of modelos) {
     let r;
@@ -237,22 +250,109 @@ async function responderComIA(chave, partes) {
     if (r.status === 404 || r.status === 400 && /not found|not supported/i.test(r.corpo?.error?.message || "")) {
       continue; // modelo não existe/foi desligado: tenta o próximo
     }
-    if (r.status === 429) {
-      return resposta(429, { erro: "Muita gente usando agora. Espere 1 minuto e tente de novo." });
-    }
+    if (r.status === 429) return { status: 429, erro: "Muita gente usando agora. Espere 1 minuto e tente de novo." };
     if (r.status !== 200) {
       ultimoErro = r.corpo?.error?.message || `Erro ${r.status} da IA.`;
       continue;
     }
-
     const cand = r.corpo?.candidates?.[0];
     const txt = (cand?.content?.parts || []).map((p) => p.text || "").join("");
     const json = extrairJSON(txt);
     if (!json) { ultimoErro = "A IA respondeu num formato inesperado. Tente de novo."; continue; }
-    return resposta(200, { ...json, _modelo: modelo });
+    return { status: 200, json: { ...json, _modelo: modelo } };
   }
+  return { status: 502, erro: ultimoErro };
+}
 
-  return resposta(502, { erro: ultimoErro });
+async function responderComIA(chave, partes) {
+  const r = await perguntarIA(chave, partes);
+  if (r.json) return resposta(200, r.json);
+  return resposta(r.status, { erro: r.erro });
+}
+
+/* ---------- ENEM: questões oficiais e parecidas ---------- */
+const NOMES_AREA = { matematica: "Matemática", linguagens: "Linguagens e Códigos", natureza: "Ciências da Natureza", humanas: "Ciências Humanas" };
+
+function textoQuestao(q, i) {
+  const ctx = q.contexto.replace(/!\[[^\]]*\]\([^)]*\)/g, "[imagem]").slice(0, 1800);
+  return `### ${i + 1}) ${q.fonte}
+${ctx}
+${q.pergunta}
+${q.opcoes.map((o, k) => `${"ABCDE"[k]}) ${o.slice(0, 300)}`).join("\n")}
+Gabarito oficial: ${"ABCDE"[q.correta]}`;
+}
+
+async function modoEnem(chave, d) {
+  const area = String(d.area || "");
+  if (!NOMES_AREA[area]) return resposta(400, { erro: "Escolha a área do ENEM." });
+  const quantidade = Math.min(15, Math.max(3, parseInt(d.quantidade, 10) || 10));
+  const { questoes, aviso } = await sortearQuestoes({
+    area, ano: d.ano, idioma: d.idioma, assunto: String(d.assunto || "").slice(0, 80), quantidade,
+  });
+  if (!questoes.length) return resposta(502, { erro: aviso || "Não consegui buscar questões do ENEM agora. Tente de novo." });
+
+  const titulo = `ENEM ${NOMES_AREA[area]}${d.ano ? " " + d.ano : ""}`;
+
+  // Explicações da IA (se der tempo e houver chave); senão, fica o gabarito oficial.
+  if (chave) {
+    const prompt = `Você é professor de cursinho pré-ENEM. Para cada questão oficial abaixo, explique em 2 a 4 frases, em linguagem simples, por que o gabarito oficial está certo (e, se couber, por que a pegadinha principal está errada). Se a questão depende de uma imagem que você não vê, explique pelo que dá para entender do texto.
+
+${questoes.map(textoQuestao).join("\n\n")}
+
+Responda SOMENTE com JSON: {"explicacoes":["explicação da questão 1", "..."]} na mesma ordem.`;
+    const r = await Promise.race([perguntarIA(chave, [{ text: prompt }]), new Promise((ok) => setTimeout(() => ok({}), 35000))]);
+    const exps = r.json && Array.isArray(r.json.explicacoes) ? r.json.explicacoes : [];
+    questoes.forEach((q, i) => { if (exps[i]) q.explicacao = String(exps[i]); });
+  }
+  questoes.forEach((q) => {
+    q.explicacao = `Gabarito oficial: letra ${"ABCDE"[q.correta]}.${q.explicacao ? " " + q.explicacao : ""}`;
+    q.fixo = true; // mantém a ordem A–E da prova
+  });
+
+  return resposta(200, {
+    titulo, materia: NOMES_AREA[area], aviso,
+    resumo: [
+      "Leia primeiro o comando (a pergunta) e depois o texto-base: assim você já sabe o que procurar.",
+      "No ENEM, a resposta quase sempre está no texto, no gráfico ou na imagem. Volte nele antes de marcar.",
+      "Elimine as alternativas que extrapolam o texto ou usam palavras absolutas como \"sempre\" e \"nunca\".",
+      "Comece pelas questões mais fáceis e deixe as longas para o fim. São cerca de 3 minutos por questão.",
+    ],
+    flashcards: [],
+    quiz: questoes,
+  });
+}
+
+async function bancoEnemParecido(chave, d) {
+  const area = String(d.area || "");
+  const quantidade = Math.min(15, Math.max(3, parseInt(d.quantidade, 10) || 10));
+  let base = [];
+  try {
+    const r = await sortearQuestoes({ area, ano: d.ano, idioma: d.idioma, assunto: String(d.assunto || "").slice(0, 80), quantidade });
+    base = r.questoes;
+  } catch {}
+  if (!base.length) return null; // sem base: cai no modo antigo (sem referência)
+
+  const prompt = `Você é um professor brasileiro que prepara alunos para o ENEM.
+Abaixo estão questões OFICIAIS do ENEM. Para CADA uma, crie UMA questão nova e inédita que cobre a mesma habilidade, no mesmo estilo e dificuldade, mas com outro contexto, outros números e outro texto-base (escreva um texto-base curto e original). Não copie trechos da original.
+
+${base.map(textoQuestao).join("\n\n")}
+
+Regras:
+- 5 alternativas, só uma correta, "correta" é o índice (0 a 4). Varie a posição da certa.
+- Confira as contas e os fatos.
+- "inspirada": copie exatamente a referência da original (ex.: "ENEM 2019 · Questão 137").
+- "explicacao": raciocínio em 2 a 4 frases.
+
+Responda SOMENTE com JSON:
+{"titulo":"título curto","materia":"${NOMES_AREA[area]}","resumo":["4 a 6 dicas práticas para essa área do ENEM"],"flashcards":[],"quiz":[{"inspirada":"ENEM 2019 · Questão 137","pergunta":"texto-base + comando","opcoes":["","","","",""],"correta":0,"explicacao":""}]}`;
+  const r = await perguntarIA(chave, [{ text: prompt }]);
+  if (!r.json) return { erro: r.erro, status: r.status };
+  const refs = new Set(base.map((q) => q.fonte));
+  (r.json.quiz || []).forEach((q, i) => {
+    const ref = refs.has(q?.inspirada) ? q.inspirada : base[i]?.fonte;
+    if (q && ref) q.fonte = `Parecida com: ${ref}`;
+  });
+  return r.json;
 }
 
 module.exports.config = { maxDuration: 60 };

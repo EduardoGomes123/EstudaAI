@@ -4,8 +4,11 @@ O app para estudantes de 13 a 17 anos tem duas funções:
 
 1. **Agenda por foto.** O aluno fotografa o quadro, a agenda ou um bilhete. A IA encontra as provas, trabalhos e deveres com as datas, e o aluno confere antes de salvar. O botão ⏰ Lembrete gera um arquivo de calendário que avisa 3 dias antes e na véspera da atividade.
 2. **Estudar pelo caderno.** O aluno fotografa até 6 páginas. A IA cria um resumo, um **mapa mental em imagem estilo infográfico** (ícones em cada ideia, fotos reais da Wikipédia quando o assunto é concreto, números-chave em destaque e um macete para memorizar; dá para baixar ou mandar pelo WhatsApp), flashcards (com a opção "repetir só os que errei") e um simulado de múltipla escolha com nota. O material pode ficar ligado à prova da agenda.
-3. **Questões estilo ENEM e olimpíadas.** O aluno escolhe a área do ENEM ou a olimpíada (OBMEP, OBM, Canguru, OBA, OBF, OBQ, OBB, OBR, OBL, ONHB, OLP, OBI), a série e o assunto. A IA cria um banco de questões inéditas no estilo da prova, com gabarito e explicação.
-4. **Feedback.** O botão 💬 Opinar (no topo) e o "esse material ficou bom?" coletam a opinião dos alunos.
+3. **ENEM.** Dois jeitos:
+   - **Questões reais:** questões oficiais de 2009 a 2023, com ano, número, imagens e gabarito oficial, buscadas na base pública [enem.dev](https://enem.dev). A IA explica cada resposta. Dá para filtrar por área, ano e assunto.
+   - **Parecidas (IA):** a IA cria questões novas a partir de questões reais e mostra em qual cada uma foi inspirada (ex.: "Parecida com: ENEM 2019 · Questão 137").
+4. **Olimpíadas.** O aluno escolhe a olimpíada (OBMEP, OBM, Canguru, OBA, OBF, OBQ, OBB, OBR, OBL, ONHB, OLP, OBI), a série e o assunto. A IA cria um banco de questões inéditas no estilo da prova, com gabarito e explicação.
+5. **Feedback.** O botão 💬 Opinar (no topo) e o "esse material ficou bom?" coletam a opinião dos alunos.
 
 Esta primeira versão de teste não tem login nem pagamento. Os dados ficam salvos só no celular de quem usa, e as fotos não ficam guardadas em lugar nenhum.
 
@@ -16,6 +19,7 @@ Esta primeira versão de teste não tem login nem pagamento. Os dados ficam salv
 | `index.html` | O app inteiro (telas e lógica) |
 | `api/ia.js` | Ponte segura com o Gemini (a chave fica escondida aqui) |
 | `api/feedback.js` | Recebe as opiniões dos alunos |
+| `api/_enem.js` | Busca as questões oficiais do ENEM (base pública enem.dev) |
 | `vercel.json` | Configuração da Vercel |
 | `manifest.json`, `sw.js`, `icon*.png`, `icon.svg` | Permitem instalar o app na tela inicial do celular |
 

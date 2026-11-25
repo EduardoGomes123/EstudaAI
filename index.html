@@ -123,6 +123,10 @@
   .pequeno{font-size:13px;color:var(--suave)}
   .oculto{display:none!important}
   .link{background:none;border:0;color:var(--roxo);font-weight:700;padding:6px;text-decoration:underline}
+  .texto-base{font-size:15px;line-height:1.5}
+  .texto-base p{margin:0 0 10px}
+  .texto-base p:last-child{margin:0}
+  .texto-base img{display:block;max-width:100%;height:auto;margin:8px auto;border-radius:8px}
   /* mapa mental */
   .mapa-caixa{background:#fff;border:1px solid var(--borda);border-radius:var(--raio);overflow:auto;-webkit-overflow-scrolling:touch;max-height:62vh}
   .mapa-caixa img{display:block;width:100%;height:auto}
@@ -175,7 +179,7 @@
       <button class="botao" id="btnNovoEstudo">📷 Fotografar o caderno</button>
     </div>
     <div class="linha" style="margin-top:12px">
-      <button class="card" id="btnEnem" style="text-align:left;font-weight:700">🎯 Questões<br><span class="pequeno" style="font-weight:600">estilo ENEM</span></button>
+      <button class="card" id="btnEnem" style="text-align:left;font-weight:700">🎯 ENEM<br><span class="pequeno" style="font-weight:600">questões reais e parecidas</span></button>
       <button class="card" id="btnOlimp" style="text-align:left;font-weight:700">🏅 Olimpíadas<br><span class="pequeno" style="font-weight:600">OBMEP, OBM, Canguru…</span></button>
     </div>
     <div id="listaMateriais"></div>
@@ -641,7 +645,14 @@ function validarMaterial(r) {
   const resumo = (Array.isArray(r.resumo) ? r.resumo : []).map(String).filter(Boolean).slice(0, 15);
   const flashcards = (Array.isArray(r.flashcards) ? r.flashcards : []).filter((c) => c && c.frente && c.verso).map((c) => ({ frente: String(c.frente), verso: String(c.verso) })).slice(0, 20);
   const quiz = (Array.isArray(r.quiz) ? r.quiz : []).filter((q) => q && q.pergunta && Array.isArray(q.opcoes) && q.opcoes.length >= 2 && Number.isInteger(q.correta) && q.correta >= 0 && q.correta < q.opcoes.length)
-    .map((q) => ({ pergunta: String(q.pergunta), opcoes: q.opcoes.map(String), correta: q.correta, explicacao: String(q.explicacao || "") })).slice(0, 20);
+    .map((q) => {
+      const x = { pergunta: String(q.pergunta), opcoes: q.opcoes.map(String), correta: q.correta, explicacao: String(q.explicacao || "") };
+      if (q.fonte) x.fonte = String(q.fonte).slice(0, 80);
+      if (q.contexto) x.contexto = String(q.contexto).slice(0, 8000);
+      if (q.fixo) x.fixo = true;
+      if (Array.isArray(q.opcoesImg) && q.opcoesImg.some(Boolean)) x.opcoesImg = q.opcoesImg.map((u) => (/^https:\/\//.test(u || "") ? u : null));
+      return x;
+    }).slice(0, 20);
   if (!resumo.length && !flashcards.length && !quiz.length) return null;
   const titulo = String(r.titulo || "Material de estudo").slice(0, 80);
   return { titulo, materia: String(r.materia || "").slice(0, 40), resumo, flashcards, quiz, mapa: validarMapa(r.mapa, titulo) };
@@ -1105,40 +1116,82 @@ const OLIMPIADAS = [
   ["obb", "OBB (Biologia)", "Biologia"], ["obr", "OBR (Robótica)", "Robótica"], ["obl", "OBL (Linguística)", "Linguística"],
   ["onhb", "ONHB (História do Brasil)", "História"], ["olp", "Olimpíada de Língua Portuguesa", "Português"], ["obi", "OBI (Informática)", "Informática"],
 ];
-const AREAS_ENEM = ["Matemática", "Linguagens (Português, Literatura, Inglês/Espanhol)", "Ciências da Natureza (Física, Química, Biologia)", "Ciências Humanas (História, Geografia, Filosofia, Sociologia)"];
+const AREAS_ENEM = [["matematica", "Matemática"], ["linguagens", "Linguagens (Português, Literatura, Inglês/Espanhol)"], ["natureza", "Ciências da Natureza (Física, Química, Biologia)"], ["humanas", "Ciências Humanas (História, Geografia, Filosofia, Sociologia)"]];
+const ANOS_ENEM = Array.from({ length: 15 }, (_, i) => 2023 - i);
 const SERIES = ["6º ano", "7º ano", "8º ano", "9º ano", "1ª série do médio", "2ª série do médio", "3ª série do médio"];
 
 function abrirBanco(tipo) {
   const enem = tipo === "enem";
+  let fonteEnem = "reais";
   abrirModal(`
-    <div class="topo"><b>${enem ? "🎯 Questões estilo ENEM" : "🏅 Olimpíadas"}</b><button class="fechar" data-fechar>✕</button></div>
-    <p class="pequeno" style="margin-top:0">A IA cria questões novas, parecidas com as da prova, com gabarito e explicação.</p>
+    <div class="topo"><b>${enem ? "🎯 Questões do ENEM" : "🏅 Olimpíadas"}</b><button class="fechar" data-fechar>✕</button></div>
     ${enem
-      ? `<label class="campo">Área</label><select id="bArea">${AREAS_ENEM.map((a) => `<option>${esc(a)}</option>`).join("")}</select>`
-      : `<label class="campo">Qual olimpíada?</label><select id="bProva">${OLIMPIADAS.map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")}</select>
+      ? `<div class="chips" style="margin-bottom:4px">
+           <button data-fonte="reais" class="ativo">📚 Questões reais</button>
+           <button data-fonte="ia">✨ Parecidas (IA)</button>
+         </div>
+         <p class="pequeno" id="bExplica"></p>
+         <label class="campo">Área</label><select id="bArea">${AREAS_ENEM.map(([k, a]) => `<option value="${k}">${esc(a)}</option>`).join("")}</select>
+         <div id="bIdiomaCaixa" class="oculto"><label class="campo">Língua estrangeira</label>
+           <select id="bIdioma"><option value="ingles">Inglês</option><option value="espanhol">Espanhol</option></select></div>
+         <label class="campo">Ano da prova</label>
+         <select id="bAno"><option value="">Vários anos (sorteio)</option>${ANOS_ENEM.map((a) => `<option>${a}</option>`).join("")}</select>`
+      : `<p class="pequeno" style="margin-top:0">A IA cria questões novas, parecidas com as da olimpíada, com gabarito e explicação. Não são questões oficiais.</p>
+         <label class="campo">Qual olimpíada?</label><select id="bProva">${OLIMPIADAS.map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")}</select>
          <label class="campo">Sua série</label><select id="bSerie">${SERIES.map((x) => `<option ${x === "8º ano" ? "selected" : ""}>${x}</option>`).join("")}</select>`}
     <label class="campo">Assunto (opcional)</label>
     <input type="text" id="bAssunto" maxlength="120" placeholder="${enem ? "Ex.: porcentagem, ecologia, Era Vargas" : "Ex.: geometria, contagem, Sistema Solar"}">
     <label class="campo">Quantas questões?</label>
     <select id="bQtd"><option>5</option><option selected>10</option><option>15</option></select>
-    <p class="pequeno">As questões são criadas pela IA no estilo da prova. Não são questões oficiais.</p>
-    <button class="botao primario" id="bGerar">✨ Gerar banco de questões</button>`);
+    <div style="height:12px"></div>
+    <button class="botao primario" id="bGerar">${enem ? "📚 Buscar questões" : "✨ Gerar banco de questões"}</button>`);
+
+  if (enem) {
+    const explica = () => {
+      $("#bExplica").textContent = fonteEnem === "reais"
+        ? "Questões oficiais do ENEM (2009 a 2023), com ano, número e gabarito oficial. A IA explica a resposta."
+        : "A IA cria questões novas parecidas com questões reais do ENEM e mostra em qual questão cada uma foi inspirada.";
+      $("#bGerar").textContent = fonteEnem === "reais" ? "📚 Buscar questões" : "✨ Gerar questões parecidas";
+    };
+    document.querySelectorAll("[data-fonte]").forEach((b) => b.onclick = () => {
+      fonteEnem = b.dataset.fonte;
+      document.querySelectorAll("[data-fonte]").forEach((x) => x.classList.toggle("ativo", x === b));
+      explica();
+    });
+    $("#bArea").onchange = () => $("#bIdiomaCaixa").classList.toggle("oculto", $("#bArea").value !== "linguagens");
+    explica();
+  }
+
   $("#bGerar").onclick = async () => {
     const prova = enem ? "enem" : $("#bProva").value;
     const nomeProva = enem ? "ENEM" : OLIMPIADAS.find((o) => o[0] === prova)[1];
-    const area = enem ? $("#bArea").value : OLIMPIADAS.find((o) => o[0] === prova)[2];
-    const corpo = { modo: "banco", prova, area, serie: enem ? "3ª série do médio" : $("#bSerie").value, assunto: $("#bAssunto").value.trim(), quantidade: +$("#bQtd").value };
-    const parar = carregando(`Criando questões estilo ${nomeProva}…`);
+    const assunto = $("#bAssunto").value.trim();
+    const quantidade = +$("#bQtd").value;
+    let corpo, area;
+    if (enem) {
+      const areaId = $("#bArea").value;
+      area = AREAS_ENEM.find((x) => x[0] === areaId)[1].split(" (")[0];
+      const comum = { area_id: areaId, ano: $("#bAno").value, idioma: $("#bIdioma").value, assunto, quantidade };
+      corpo = fonteEnem === "reais"
+        ? { modo: "enem", ...comum, area: areaId }
+        : { modo: "banco", prova, area, serie: "3ª série do médio", ...comum };
+    } else {
+      area = OLIMPIADAS.find((o) => o[0] === prova)[2];
+      corpo = { modo: "banco", prova, area, serie: $("#bSerie").value, assunto, quantidade };
+    }
+    const parar = carregando(enem && fonteEnem === "reais" ? "Buscando questões do ENEM…" : `Criando questões estilo ${nomeProva}…`);
     try {
       const r = await chamarIA(corpo);
       parar();
       if (r.erro) { toast(r.erro, 4500); return; }
       const m = validarMaterial(r);
       if (!m || !m.quiz.length) { toast("Não consegui montar as questões. Tente de novo.", 4500); return; }
-      m.titulo = `${nomeProva}: ${corpo.assunto || m.titulo}`.slice(0, 80);
-      m.materia = m.materia || area.split(" (")[0];
+      if (enem) m.titulo = `ENEM${fonteEnem === "ia" ? " (parecidas)" : ""}: ${area}${corpo.ano ? " " + corpo.ano : ""}${assunto ? " · " + assunto : ""}`.slice(0, 80);
+      else m.titulo = `${nomeProva}: ${assunto || m.titulo}`.slice(0, 80);
+      m.materia = m.materia || area;
       m.banco = prova;
       fecharModal(); salvarMaterial(m, null, "quiz");
+      if (r.aviso) toast(r.aviso, 4500);
     } catch (e) {
       parar();
       erroIA(e, () => { fecharModal(); salvarMaterial({ ...DEMO_BANCO(nomeProva), banco: prova }, null, "quiz"); });
@@ -1194,6 +1247,14 @@ function rodarFlashcards(m, c, fila) {
 }
 
 /* ---------- simulado ---------- */
+// Mostra o texto-base das questões oficiais (markdown simples com imagens)
+function mdSimples(md) {
+  let h = esc(md);
+  h = h.replace(/!\[([^\]]*)\]\((https:\/\/[^)\s]+)\)/g, (_, alt, url) => `<img src="${url}" alt="${alt}" loading="lazy">`);
+  h = h.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<i>$2</i>");
+  return h.split(/\n{2,}/).map((p) => `<p>${p.replace(/\n/g, "<br>")}</p>`).join("");
+}
+
 function rodarQuiz(m, c) {
   if (!m.quiz.length) { c.innerHTML = `<p class="vazio">Sem simulado neste material.</p>`; return; }
   let pos = 0, acertos = 0;
@@ -1214,12 +1275,15 @@ function rodarQuiz(m, c) {
     }
     const q = m.quiz[pos];
     const ordem = q.opcoes.map((_, i) => i);
-    for (let i = ordem.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ordem[i], ordem[j]] = [ordem[j], ordem[i]]; }
+    if (!q.fixo) for (let i = ordem.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ordem[i], ordem[j]] = [ordem[j], ordem[i]]; }
+    const img = (i) => q.opcoesImg && q.opcoesImg[i] ? `<img src="${esc(q.opcoesImg[i])}" alt="" loading="lazy" style="display:block;max-width:100%;margin-top:6px;border-radius:8px">` : "";
     c.innerHTML = `
       <div class="pequeno">Pergunta ${pos + 1} de ${m.quiz.length} · ${acertos} certas</div>
       <div class="progresso"><div style="width:${(pos / m.quiz.length) * 100}%"></div></div>
-      <div class="card" style="margin-top:10px;white-space:pre-wrap;font-size:${q.pergunta.length > 220 ? 16 : 17}px;font-weight:${q.pergunta.length > 220 ? 500 : 700}">${esc(q.pergunta)}</div>
-      <div id="qOpcoes">${ordem.map((i, k) => `<button class="opcao" data-op="${i}">${"ABCDEF"[k] || k + 1}) ${esc(q.opcoes[i])}</button>`).join("")}</div>
+      ${q.fonte ? `<div style="margin-top:10px"><span class="tag ${/^Parecida/.test(q.fonte) ? "trabalho" : "prova"}">📌 ${esc(q.fonte)}</span></div>` : ""}
+      ${q.contexto ? `<div class="card texto-base" style="margin-top:8px">${mdSimples(q.contexto)}</div>` : ""}
+      <div class="card" style="margin-top:8px;white-space:pre-wrap;font-size:${q.pergunta.length > 220 ? 16 : 17}px;font-weight:${q.pergunta.length > 220 ? 500 : 700}">${esc(q.pergunta)}</div>
+      <div id="qOpcoes">${ordem.map((i, k) => `<button class="opcao" data-op="${i}">${"ABCDEF"[k] || k + 1}) ${esc(q.opcoes[i])}${img(i)}</button>`).join("")}</div>
       <div id="qDepois"></div>`;
     document.querySelectorAll("[data-op]").forEach((b) => b.onclick = () => {
       const esc_ = +b.dataset.op, certo = esc_ === q.correta;
