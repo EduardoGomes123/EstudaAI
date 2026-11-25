@@ -65,10 +65,15 @@ Responda SOMENTE com JSON neste formato:
  "resumo": ["8 a 12 tópicos curtos, cada um com 1 ou 2 frases, do mais importante para o menos importante"],
  "flashcards": [{"frente":"pergunta ou termo","verso":"resposta curta"}],
  "quiz": [{"pergunta":"","opcoes":["","","",""],"correta":0,"explicacao":"por que essa é a certa, em 1 ou 2 frases"}],
- "mapa": {"centro":"tema central em até 4 palavras","ramos":[{"titulo":"ideia principal em até 4 palavras","itens":["detalhe curto em até 7 palavras"]}]}
+ "mapa": {"centro":"tema central em até 4 palavras","icone":"1 emoji","foto":"termo de busca na Wikipédia ou vazio","macete":"frase curta para memorizar","ramos":[{"titulo":"ideia principal em até 4 palavras","icone":"1 emoji","foto":"termo ou vazio","dado":{"valor":"número, data ou fórmula curta","rotulo":"o que significa, até 5 palavras"},"itens":[{"texto":"detalhe curto em até 7 palavras","icone":"1 emoji"}]}]}
 }
 - Faça de 10 a 15 flashcards e de 8 a 10 perguntas no quiz.
 - No mapa mental, faça de 4 a 6 ramos, cada um com 2 a 4 itens curtos. Use palavras-chave, não frases longas.
+- O mapa mental é um infográfico para ajudar a memorizar:
+  - "icone": um emoji que represente bem a ideia (no centro, em cada ramo e em cada item).
+  - "foto": só para coisas concretas que existem em foto (pessoa histórica, lugar, animal, planta, objeto, fenômeno natural, obra de arte). Escreva o termo como o título do artigo da Wikipédia em português (ex.: "Revolução Francesa", "Mitocôndria"). Para assuntos abstratos (como contas de matemática), use "". No máximo 3 ramos com foto.
+  - "dado": um número, data, porcentagem ou fórmula importante do conteúdo, com um rótulo curto. Se o ramo não tiver, use null. Não invente números.
+  - "macete": uma frase curta e esperta (rima, sigla ou associação) para lembrar o assunto.
 - No quiz, sempre 4 opções, só uma certa, com "correta" sendo o índice (0 a 3). Varie a posição da resposta certa.
 - Se as fotos estiverem ilegíveis ou não forem de conteúdo escolar, responda {"erro":"explicação curta"}.`;
 }
@@ -86,9 +91,14 @@ Regras:
 - "centro": o tema central, em até 4 palavras.
 - De 4 a 6 "ramos", cada um com "titulo" (até 4 palavras) e de 2 a 4 "itens" (até 7 palavras cada).
 - Não invente conteúdo fora do resumo.
+- O mapa mental é um infográfico para ajudar a memorizar:
+  - "icone": um emoji que represente bem a ideia (no centro, em cada ramo e em cada item).
+  - "foto": só para coisas concretas que existem em foto (pessoa histórica, lugar, animal, planta, objeto, fenômeno natural, obra de arte). Escreva o termo como o título do artigo da Wikipédia em português (ex.: "Revolução Francesa", "Mitocôndria"). Para assuntos abstratos (como contas de matemática), use "". No máximo 3 ramos com foto.
+  - "dado": um número, data, porcentagem ou fórmula importante do conteúdo, com um rótulo curto. Se o ramo não tiver, use null. Não invente números.
+  - "macete": uma frase curta e esperta (rima, sigla ou associação) para lembrar o assunto.
 
 Responda SOMENTE com JSON neste formato:
-{"mapa":{"centro":"","ramos":[{"titulo":"","itens":[""]}]}}`;
+{"mapa":{"centro":"tema central em até 4 palavras","icone":"1 emoji","foto":"termo de busca na Wikipédia ou vazio","macete":"frase curta para memorizar","ramos":[{"titulo":"ideia principal em até 4 palavras","icone":"1 emoji","foto":"termo ou vazio","dado":{"valor":"número, data ou fórmula curta","rotulo":"o que significa, até 5 palavras"},"itens":[{"texto":"detalhe curto em até 7 palavras","icone":"1 emoji"}]}]}}`;
 }
 
 const PROVAS = {

@@ -694,42 +694,94 @@ function mostrarAba(m, aba) {
 }
 
 /* ---------- mapa mental (imagem) ---------- */
-function validarMapa(x, titulo) {
-  if (!x || !Array.isArray(x.ramos)) return null;
-  const ramos = x.ramos
-    .filter((r) => r && r.titulo)
-    .map((r) => ({ titulo: String(r.titulo).slice(0, 60), itens: (Array.isArray(r.itens) ? r.itens : []).map(String).filter(Boolean).slice(0, 5).map((i) => i.slice(0, 90)) }))
-    .slice(0, 6);
-  if (ramos.length < 2) return null;
-  return { centro: String(x.centro || titulo || "Tema").slice(0, 60), ramos };
+function umEmoji(e) {
+  const s = String(e || "").trim();
+  if (!s || /[A-Za-z0-9À-ú]/.test(s)) return "";
+  if (window.Intl && Intl.Segmenter) {
+    const g = [...new Intl.Segmenter("pt", { granularity: "grapheme" }).segment(s)];
+    return g.length ? g[0].segment : "";
+  }
+  return Array.from(s).slice(0, 2).join("");
 }
 
-// Sem internet / modo prévia: monta um mapa simples a partir do resumo
-function mapaLocal(m) {
-  const curto = (t, n) => { const p = String(t).split(/\s+/); return p.length > n ? p.slice(0, n).join(" ") + "…" : p.join(" "); };
-  if (m.flashcards.length >= 3) {
-    return {
-      centro: curto(m.titulo, 5),
-      ramos: m.flashcards.slice(0, 6).map((c) => ({ titulo: curto(c.frente.replace(/\?$/, ""), 5), itens: [curto(c.verso, 10)] })),
-    };
-  }
+function validarMapa(x, titulo) {
+  if (!x || !Array.isArray(x.ramos)) return null;
+  let comFoto = 0;
+  const ramos = x.ramos
+    .filter((r) => r && r.titulo)
+    .slice(0, 6)
+    .map((r) => {
+      const foto = String(r.foto || "").trim().slice(0, 80);
+      const dado = r.dado && r.dado.valor ? { valor: String(r.dado.valor).slice(0, 18), rotulo: String(r.dado.rotulo || "").slice(0, 40) } : null;
+      return {
+        titulo: String(r.titulo).slice(0, 60),
+        icone: umEmoji(r.icone),
+        foto: foto && comFoto++ < 3 ? foto : "",
+        dado,
+        itens: (Array.isArray(r.itens) ? r.itens : [])
+          .map((i) => (typeof i === "string" ? { texto: i, icone: "" } : { texto: String(i?.texto || ""), icone: umEmoji(i?.icone) }))
+          .filter((i) => i.texto).slice(0, 5).map((i) => ({ ...i, texto: i.texto.slice(0, 90) })),
+      };
+    });
+  if (ramos.length < 2) return null;
   return {
-    centro: curto(m.titulo, 5),
-    ramos: m.resumo.slice(0, 6).map((t) => {
-      const [a, ...b] = t.split(/:\s+|\.\s+/);
-      return { titulo: curto(a, 4), itens: [curto(b.join(". ") || t, 10)] };
-    }),
+    centro: String(x.centro || titulo || "Tema").slice(0, 60),
+    icone: umEmoji(x.icone),
+    foto: String(x.foto || "").trim().slice(0, 80),
+    macete: String(x.macete || "").slice(0, 200),
+    ramos,
   };
 }
 
+// Sem internet / modo prévia: monta um mapa simples a partir do material
+const ICONES_RAMO = ["💡", "📌", "🔎", "⭐", "🧩", "✅"];
+function mapaLocal(m) {
+  const curto = (t, n) => { const p = String(t).split(/\s+/); return p.length > n ? p.slice(0, n).join(" ") + "…" : p.join(" "); };
+  const base = m.flashcards.length >= 3
+    ? m.flashcards.slice(0, 6).map((c) => ({ titulo: curto(c.frente.replace(/\?$/, ""), 5), itens: [curto(c.verso, 10)] }))
+    : m.resumo.slice(0, 6).map((t) => { const [a, ...b] = t.split(/:\s+|\.\s+/); return { titulo: curto(a, 4), itens: [curto(b.join(". ") || t, 10)] }; });
+  return {
+    centro: curto(m.titulo, 5), icone: iconeMateria(m.materia), foto: "", macete: "",
+    ramos: base.map((r, i) => ({ titulo: r.titulo, icone: ICONES_RAMO[i % 6], foto: "", dado: null, itens: r.itens.map((t) => ({ texto: t, icone: "👉" })) })),
+  };
+}
+
+/* fotos da Wikipédia (grátis, com licença livre) */
+const _fotos = new Map();
+async function buscarFoto(termo) {
+  if (!termo) return null;
+  if (_fotos.has(termo)) return _fotos.get(termo);
+  const tarefa = (async () => {
+    const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 7000);
+    try {
+      const q = `https://pt.wikipedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrlimit=1&gsrsearch=${encodeURIComponent(termo)}&prop=pageimages&piprop=thumbnail&pithumbsize=500`;
+      const j = await (await fetch(q, { signal: ctrl.signal })).json();
+      const pag = j && j.query && Object.values(j.query.pages || {})[0];
+      const src = pag && pag.thumbnail && pag.thumbnail.source;
+      if (!src || /\.svg/i.test(src) && !/\.png$/i.test(src)) return null;
+      const blob = await (await fetch(src, { signal: ctrl.signal })).blob();
+      if (!blob.type.startsWith("image/")) return null;
+      if (window.createImageBitmap) return await createImageBitmap(blob);
+      return await new Promise((ok) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ok(null); i.src = URL.createObjectURL(blob); });
+    } catch (e) { return null; }
+    finally { clearTimeout(t); }
+  })();
+  _fotos.set(termo, tarefa);
+  const r = await tarefa;
+  if (!r) _fotos.delete(termo);
+  return r;
+}
+
 let _medidor;
+const FONTE = `system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
+const FONTE_SVG = `system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif, Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji`;
 function quebrarLinhas(texto, maxPx, fonte) {
   _medidor = _medidor || document.createElement("canvas").getContext("2d");
-  _medidor.font = `${fonte} system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
+  _medidor.font = `${fonte} ${FONTE}`;
   const cabe = (t) => _medidor.measureText(t).width <= maxPx;
   const palavras = String(texto).split(/\s+/).filter(Boolean); const linhas = []; let atual = "";
   for (let p of palavras) {
-    while (!cabe(p) && p.length > 4) { // palavra enorme: corta
+    while (!cabe(p) && p.length > 4) {
       let k = p.length - 1; while (k > 3 && !cabe(p.slice(0, k) + "-")) k--;
       if (atual) { linhas.push(atual); atual = ""; }
       linhas.push(p.slice(0, k) + "-"); p = p.slice(k);
@@ -744,84 +796,167 @@ function quebrarLinhas(texto, maxPx, fonte) {
 
 const CORES_MAPA = ["#5B3DF5", "#12B886", "#F76707", "#1C7ED6", "#D6336C", "#F59F00"];
 
-function svgMapa(mapa) {
-  const M = 40, W = 1600 + 2 * M, CX = W / 2, LH_ITEM = 30, LH_RAMO = 32, GAP_ITEM = 14, GAP_BLOCO = 44;
+// Monta o desenho. "fotos" = { termo: imagem }. Devolve o SVG e onde colar cada foto.
+function desenharMapa(mapa, fotos = {}) {
+  const M = 40, W = 1760, CX = W / 2, LH_ITEM = 30, LH_RAMO = 32, GAP_ITEM = 14, GAP_BLOCO = 44;
+  const CW = 340, RW = 260, IW = 300;
   const xml = (t) => esc(t);
-  const centroL = quebrarLinhas(mapa.centro, 280, "900 34px");
-  const centroH = Math.max(120, centroL.length * 44 + 50);
+  const colar = [];
+  let svg = "";
 
+  // centro
+  const fotoC = fotos[mapa.foto];
+  const centroL = quebrarLinhas(mapa.centro, CW - 40, "900 34px");
+  const topoC = fotoC ? 214 : mapa.icone ? 90 : 20;
+  const centroH = topoC + centroL.length * 44 + 30;
+
+  // ramos
   const blocos = mapa.ramos.map((r, i) => {
-    const tl = quebrarLinhas(r.titulo, 220, "800 26px");
-    const ramoH = tl.length * LH_RAMO + 34;
-    const itens = r.itens.map((t) => { const l = quebrarLinhas(t, 266, "600 22px"); return { l, h: l.length * LH_ITEM + 22 }; });
+    const foto = fotos[r.foto];
+    const tl = quebrarLinhas(r.titulo, RW - 30, "800 26px");
+    const topo = 14 + (foto ? 142 : 0) + (r.icone ? 52 : 6);
+    const ramoH = topo + tl.length * LH_RAMO + (r.dado ? 96 : 0) + 18;
+    const itens = r.itens.map((it) => {
+      const l = quebrarLinhas(it.texto, IW - (it.icone ? 66 : 32), "600 22px");
+      return { ...it, l, h: Math.max(l.length * LH_ITEM + 22, it.icone ? 56 : 0) };
+    });
     const itensH = itens.reduce((a, b) => a + b.h, 0) + Math.max(0, itens.length - 1) * GAP_ITEM;
-    return { r, i, tl, ramoH, itens, h: Math.max(ramoH, itensH), cor: CORES_MAPA[i % CORES_MAPA.length], lado: i % 2 === 0 ? 1 : -1 };
+    return { r, foto, tl, topo, ramoH, itens, h: Math.max(ramoH, itensH), cor: CORES_MAPA[i % CORES_MAPA.length], lado: i % 2 === 0 ? 1 : -1 };
   });
   const lados = { 1: blocos.filter((b) => b.lado === 1), "-1": blocos.filter((b) => b.lado === -1) };
   const alturaLado = (l) => l.reduce((a, b) => a + b.h, 0) + Math.max(0, l.length - 1) * GAP_BLOCO;
-  const TOPO = 70, BASE = 80;
-  const H = Math.max(alturaLado(lados[1]), alturaLado(lados["-1"]), centroH) + TOPO + BASE;
-  const CY = TOPO + (H - TOPO - BASE) / 2;
+  const TOPO = 80;
+  const corpoH = Math.max(alturaLado(lados[1]), alturaLado(lados["-1"]), centroH);
+  const CY = TOPO + corpoH / 2;
+
+  // macete
+  const maceteL = mapa.macete ? quebrarLinhas(mapa.macete, W - 2 * M - 150, "700 26px") : [];
+  const maceteH = maceteL.length ? maceteL.length * 36 + 66 : 0;
+  const temFoto = !!fotoC || blocos.some((b) => b.foto);
+  const H = TOPO + corpoH + 40 + (maceteH ? maceteH + 24 : 0) + 60;
 
   let ligacoes = "", caixas = "";
   for (const k of [1, -1]) {
     const lista = lados[k];
-    let y = TOPO + (H - TOPO - BASE - alturaLado(lista)) / 2;
+    let y = TOPO + (corpoH - alturaLado(lista)) / 2;
     for (const b of lista) {
-      const ramoW = 250, itemW = 300;
-      const ramoX = k === 1 ? CX + 210 : CX - 210 - ramoW;
-      const itemX = k === 1 ? CX + 500 : CX - 500 - itemW;
+      const ramoX = k === 1 ? CX + CW / 2 + 60 : CX - CW / 2 - 60 - RW;
+      const itemX = k === 1 ? ramoX + RW + 40 : ramoX - 40 - IW;
       const ramoY = y + (b.h - b.ramoH) / 2;
       const ramoMY = ramoY + b.ramoH / 2;
-      // centro -> ramo
-      const x0 = CX + k * 160, x1 = k === 1 ? ramoX : ramoX + ramoW;
+      const x0 = CX + k * (CW / 2), x1 = k === 1 ? ramoX : ramoX + RW;
       ligacoes += `<path d="M${x0},${CY} C${(x0 + x1) / 2},${CY} ${(x0 + x1) / 2},${ramoMY} ${x1},${ramoMY}" stroke="${b.cor}" stroke-width="7" fill="none" stroke-linecap="round"/>`;
-      caixas += `<rect x="${ramoX}" y="${ramoY}" width="${ramoW}" height="${b.ramoH}" rx="22" fill="${b.cor}"/>`;
+      caixas += `<rect x="${ramoX}" y="${ramoY}" width="${RW}" height="${b.ramoH}" rx="22" fill="${b.cor}"/>`;
+      let cy = ramoY + 14;
+      if (b.foto) {
+        caixas += `<rect x="${ramoX + 14}" y="${cy}" width="${RW - 28}" height="130" rx="14" fill="#ffffff" opacity="0.25"/>`;
+        colar.push({ img: b.foto, x: ramoX + 14, y: cy, w: RW - 28, h: 130, raio: 14 });
+        cy += 142;
+      }
+      if (b.r.icone) {
+        caixas += `<circle cx="${ramoX + RW / 2}" cy="${cy + 24}" r="25" fill="#ffffff"/>`;
+        caixas += `<text x="${ramoX + RW / 2}" y="${cy + 37}" text-anchor="middle" font-size="32">${xml(b.r.icone)}</text>`;
+        cy += 52;
+      } else cy += 6;
       b.tl.forEach((t, j) => {
-        caixas += `<text x="${ramoX + ramoW / 2}" y="${ramoY + 17 + LH_RAMO * (j + 0.78)}" text-anchor="middle" font-size="26" font-weight="800" fill="#fff">${xml(t)}</text>`;
+        caixas += `<text x="${ramoX + RW / 2}" y="${cy + LH_RAMO * (j + 0.78)}" text-anchor="middle" font-size="26" font-weight="800" fill="#fff">${xml(t)}</text>`;
       });
+      cy += b.tl.length * LH_RAMO;
+      if (b.r.dado) {
+        const py = cy + 12;
+        caixas += `<rect x="${ramoX + 14}" y="${py}" width="${RW - 28}" height="78" rx="14" fill="#fff"/>`;
+        let fs = 32;
+        while (fs > 16 && quebrarLinhas(b.r.dado.valor.replace(/\s+/g, "\u00a0"), RW - 46, `900 ${fs}px`).length > 1) fs -= 2;
+        caixas += `<text x="${ramoX + RW / 2}" y="${py + 30 + fs / 3}" text-anchor="middle" font-size="${fs}" font-weight="900" fill="${b.cor}">${xml(b.r.dado.valor)}</text>`;
+        caixas += `<text x="${ramoX + RW / 2}" y="${py + 64}" text-anchor="middle" font-size="16" font-weight="700" fill="#6B6880">${xml(quebrarLinhas(b.r.dado.rotulo, RW - 50, "700 16px")[0] || "")}</text>`;
+      }
       // itens
       const totalItens = b.itens.reduce((a, it) => a + it.h, 0) + Math.max(0, b.itens.length - 1) * GAP_ITEM;
       let iy = y + (b.h - totalItens) / 2;
       for (const it of b.itens) {
         const mY = iy + it.h / 2;
-        const a0 = k === 1 ? ramoX + ramoW : ramoX, a1 = k === 1 ? itemX : itemX + itemW;
+        const a0 = k === 1 ? ramoX + RW : ramoX, a1 = k === 1 ? itemX : itemX + IW;
         ligacoes += `<path d="M${a0},${ramoMY} C${(a0 + a1) / 2},${ramoMY} ${(a0 + a1) / 2},${mY} ${a1},${mY}" stroke="${b.cor}" stroke-width="3.5" fill="none" stroke-linecap="round" opacity="0.7"/>`;
-        caixas += `<rect x="${itemX}" y="${iy}" width="${itemW}" height="${it.h}" rx="16" fill="${b.cor}1F" stroke="${b.cor}" stroke-width="2.5"/>`;
+        caixas += `<rect x="${itemX}" y="${iy}" width="${IW}" height="${it.h}" rx="16" fill="${b.cor}1F" stroke="${b.cor}" stroke-width="2.5"/>`;
+        let tx = itemX + 16;
+        if (it.icone) {
+          caixas += `<text x="${itemX + 30}" y="${mY + 10}" text-anchor="middle" font-size="26">${xml(it.icone)}</text>`;
+          tx = itemX + 52;
+        }
+        const t0 = mY - (it.l.length * LH_ITEM) / 2;
         it.l.forEach((t, j) => {
-          caixas += `<text x="${itemX + 16}" y="${iy + 11 + LH_ITEM * (j + 0.8)}" font-size="22" font-weight="600" fill="#1D1B2C">${xml(t)}</text>`;
+          caixas += `<text x="${tx}" y="${t0 + LH_ITEM * (j + 0.78)}" font-size="22" font-weight="600" fill="#1D1B2C">${xml(t)}</text>`;
         });
         iy += it.h + GAP_ITEM;
       }
       y += b.h + GAP_BLOCO;
     }
   }
-  const centro = `<rect x="${CX - 160}" y="${CY - centroH / 2}" width="320" height="${centroH}" rx="34" fill="#1D1B2C"/>` +
-    centroL.map((t, j) => `<text x="${CX}" y="${CY - (centroL.length * 44) / 2 + 44 * (j + 0.75)}" text-anchor="middle" font-size="34" font-weight="900" fill="#fff">${xml(t)}</text>`).join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif">
+
+  // centro por cima das ligações
+  const cy0 = CY - centroH / 2;
+  let centro = `<rect x="${CX - CW / 2}" y="${cy0}" width="${CW}" height="${centroH}" rx="34" fill="#1D1B2C"/>`;
+  if (fotoC) {
+    centro += `<circle cx="${CX}" cy="${cy0 + 24 + 90}" r="96" fill="#fff"/>`;
+    colar.push({ img: fotoC, x: CX - 90, y: cy0 + 24, w: 180, h: 180, circulo: true });
+  } else if (mapa.icone) {
+    centro += `<text x="${CX}" y="${cy0 + 72}" text-anchor="middle" font-size="54">${xml(mapa.icone)}</text>`;
+  }
+  centroL.forEach((t, j) => {
+    centro += `<text x="${CX}" y="${cy0 + topoC + 44 * (j + 0.75)}" text-anchor="middle" font-size="34" font-weight="900" fill="#fff">${xml(t)}</text>`;
+  });
+
+  // faixa do macete
+  let macete = "";
+  if (maceteH) {
+    const my = TOPO + corpoH + 40;
+    macete = `<rect x="${M}" y="${my}" width="${W - 2 * M}" height="${maceteH}" rx="24" fill="#EEEAFF" stroke="#5B3DF5" stroke-width="2.5" stroke-dasharray="10 8"/>
+<text x="${M + 64}" y="${my + 62}" text-anchor="middle" font-size="44">🧠</text>
+<text x="${M + 120}" y="${my + 36}" font-size="18" font-weight="800" fill="#5B3DF5" letter-spacing="1">MACETE PRA NÃO ESQUECER</text>` +
+      maceteL.map((t, j) => `<text x="${M + 120}" y="${my + 72 + 36 * j}" font-size="26" font-weight="700" fill="#1D1B2C">${xml(t)}</text>`).join("");
+  }
+
+  svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${FONTE_SVG}">
 <rect width="${W}" height="${H}" fill="#FFFFFF"/>
-<text x="40" y="48" font-size="24" font-weight="800" fill="#5B3DF5">Mapa mental</text>
-${ligacoes}${caixas}${centro}
-<text x="${W - 40}" y="${H - 30}" text-anchor="end" font-size="20" font-weight="700" fill="#9A96AE">Feito com Estudaí</text>
+<text x="${M}" y="52" font-size="26" font-weight="800" fill="#5B3DF5">🗺️ Mapa mental</text>
+${ligacoes}${caixas}${centro}${macete}
+${temFoto ? `<text x="${M}" y="${H - 26}" font-size="17" font-weight="600" fill="#9A96AE">Fotos: Wikipédia / Wikimedia Commons</text>` : ""}
+<text x="${W - M}" y="${H - 26}" text-anchor="end" font-size="20" font-weight="700" fill="#9A96AE">Feito com Estudaí</text>
 </svg>`;
+  return { svg, colar };
 }
 
-function pngMapa(mapa) {
-  return new Promise((ok, erro) => {
-    const svg = svgMapa(mapa);
-    const img = new Image();
+async function pngMapa(mapa) {
+  const termos = [mapa.foto, ...mapa.ramos.map((r) => r.foto)].filter(Boolean).slice(0, 4);
+  const fotos = {};
+  await Promise.all(termos.map(async (t) => { const f = await buscarFoto(t); if (f) fotos[t] = f; }));
+  const { svg, colar } = desenharMapa(mapa, fotos);
+  const img = await new Promise((ok, erro) => {
+    const i = new Image();
     const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
-    img.onload = () => {
-      const c = document.createElement("canvas");
-      c.width = img.width; c.height = img.height;
-      const ctx = c.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
-      ctx.drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
-      c.toBlob((b) => (b ? ok(b) : erro(new Error("Não consegui gerar a imagem."))), "image/png");
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); erro(new Error("Não consegui gerar a imagem.")); };
-    img.src = url;
+    i.onload = () => { URL.revokeObjectURL(url); ok(i); };
+    i.onerror = () => { URL.revokeObjectURL(url); erro(new Error("Não consegui gerar a imagem.")); };
+    i.src = url;
   });
+  const c = document.createElement("canvas");
+  c.width = img.width; c.height = img.height;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+  ctx.drawImage(img, 0, 0);
+  for (const f of colar) {
+    const iw = f.img.width, ih = f.img.height;
+    const esc = Math.max(f.w / iw, f.h / ih); // cobre o espaço, cortando as sobras
+    const sw = f.w / esc, sh = f.h / esc;
+    ctx.save();
+    ctx.beginPath();
+    if (f.circulo) ctx.arc(f.x + f.w / 2, f.y + f.h / 2, f.w / 2, 0, Math.PI * 2);
+    else if (ctx.roundRect) ctx.roundRect(f.x, f.y, f.w, f.h, f.raio);
+    else ctx.rect(f.x, f.y, f.w, f.h);
+    ctx.clip();
+    ctx.drawImage(f.img, (iw - sw) / 2, (ih - sh) / 2, sw, sh, f.x, f.y, f.w, f.h);
+    ctx.restore();
+  }
+  return await new Promise((ok, erro) => c.toBlob((b) => (b ? ok(b) : erro(new Error("Não consegui gerar a imagem."))), "image/png"));
 }
 
 function nomeArquivo(t) {
@@ -853,7 +988,8 @@ async function rodarMapa(m, c) {
     };
     return;
   }
-  c.innerHTML = `<div class="mapa-caixa" id="mapaCaixa"><div class="vazio">Desenhando…</div></div>
+  m.mapa = validarMapa(m.mapa, m.titulo) || m.mapa; // normaliza mapas antigos
+  c.innerHTML = `<div class="mapa-caixa" id="mapaCaixa"><div class="vazio">🎨 Buscando fotos e desenhando…</div></div>
     <p class="pequeno" style="text-align:center">Toque na imagem para ampliar.</p>
     <div class="linha">
       <button class="botao primario" id="mBaixar">⬇️ Baixar imagem</button>
@@ -1518,14 +1654,15 @@ function DEMO_MATERIAL() {
       { pergunta: "Qual é a forma simplificada de 10/15?", opcoes: ["5/10", "1/3", "3/2", "2/3"], correta: 3, explicacao: "Dividindo os dois por 5: 10/15 = 2/3." },
     ],
     mapa: {
-      centro: "Frações",
+      centro: "Frações", icone: "🍕", foto: "Pizza",
+      macete: "Numerador fica no Norte (em cima), Denominador fica Debaixo. Na divisão: mantém a primeira e inverte a segunda!",
       ramos: [
-        { titulo: "O que é", itens: ["Partes de um inteiro", "Numerador: partes tomadas", "Denominador: partes do inteiro"] },
-        { titulo: "Equivalência", itens: ["1/2 = 2/4 = 3/6", "Multiplica ou divide os dois"] },
-        { titulo: "Simplificar", itens: ["Divide em cima e embaixo", "6/8 = 3/4"] },
-        { titulo: "Somar e subtrair", itens: ["Mesmo denominador: opera numeradores", "Diferentes: usar o MMC"] },
-        { titulo: "Multiplicar e dividir", itens: ["Multiplica em linha", "Divisão: inverte a segunda"] },
-        { titulo: "Tipos", itens: ["Própria: numerador menor", "Imprópria: 7/4", "Número misto: 1 e 3/4"] },
+        { titulo: "O que é", icone: "🍰", foto: "", dado: { valor: "3/8", rotulo: "3 de 8 pedaços" }, itens: [{ texto: "Partes de um inteiro", icone: "🧩" }, { texto: "Numerador: partes tomadas", icone: "⬆️" }, { texto: "Denominador: partes do inteiro", icone: "⬇️" }] },
+        { titulo: "Equivalência", icone: "⚖️", foto: "", dado: { valor: "1/2 = 2/4", rotulo: "mesma quantidade" }, itens: [{ texto: "Mesma parte, números diferentes", icone: "🟰" }, { texto: "Multiplica ou divide os dois", icone: "✖️" }] },
+        { titulo: "Simplificar", icone: "✂️", foto: "", dado: null, itens: [{ texto: "Divide em cima e embaixo", icone: "➗" }, { texto: "6/8 vira 3/4", icone: "👉" }] },
+        { titulo: "Somar e subtrair", icone: "➕", foto: "", dado: null, itens: [{ texto: "Mesmo denominador: soma os de cima", icone: "✅" }, { texto: "Diferentes: usar o MMC", icone: "🔄" }] },
+        { titulo: "Multiplicar e dividir", icone: "✖️", foto: "", dado: { valor: "2/3 × 4/5 = 8/15", rotulo: "em linha" }, itens: [{ texto: "Multiplica em linha", icone: "➡️" }, { texto: "Divisão: inverte a segunda", icone: "🔃" }] },
+        { titulo: "Tipos", icone: "🏷️", foto: "", dado: null, itens: [{ texto: "Própria: numerador menor", icone: "🔹" }, { texto: "Imprópria: 7/4", icone: "🔸" }, { texto: "Número misto: 1 e 3/4", icone: "🔺" }] },
       ],
     },
   };
