@@ -184,3 +184,8 @@ select
   (select count(*) from public.estudai_turma_membros) as alunos_em_turmas,
   (select count(*) from public.estudai_turma_materiais where not removido) as materiais_de_turma;
 revoke all on public.estudai_contas_resumo from anon, authenticated;
+
+-- v4: eventos de uso da redação e do modo foco
+create policy "app grava uso v4" on public.estudai_uso for insert to anon
+  with check (evento in ('redacao','foco') and char_length(visitante) between 8 and 40 and char_length(coalesce(detalhe,'')) <= 80 and char_length(coalesce(aparelho,'')) <= 160);
+-- (a view estudai_uso_por_dia ganhou as colunas redacoes e sessoes_foco)

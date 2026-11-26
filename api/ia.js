@@ -81,6 +81,49 @@ Responda SOMENTE com JSON neste formato:
 {"materia":"","enunciado":"","passos":[{"pergunta":"","dica":"","explicacao":""}],"resposta":"","conceito":"","parecidas":[{"pergunta":"","opcoes":["","","",""],"correta":0,"explicacao":""}],"aviso":""}`;
 }
 
+function promptBoletim() {
+  return `Você lê a foto do boletim escolar de um estudante brasileiro (ensino fundamental ou médio).
+
+Extraia, para cada disciplina, as notas de cada período (bimestre ou trimestre), na ordem: 1º, 2º, 3º, 4º.
+Regras:
+- Notas na escala de 0 a 10. Se o boletim usa 0 a 100, divida por 10. Se usa conceitos (A, B, C...), deixe null.
+- Período sem nota ainda: null. Não invente notas.
+- Ignore faltas, frequência, média final, recuperação e resultado.
+- "periodos": 4 se for bimestral, 3 se for trimestral.
+- "media": a média mínima para aprovação, se estiver escrita no boletim; senão null.
+- Use nomes padronizados: Matemática, Português, Redação, Ciências, Física, Química, Biologia, História, Geografia, Inglês, Espanhol, Artes, Educação Física, Filosofia, Sociologia, Ensino Religioso.
+- Se a imagem não for um boletim ou estiver ilegível, responda {"materias":[],"aviso":"explicação curta"}.
+
+Responda SOMENTE com JSON neste formato:
+{"periodos":4,"media":null,"materias":[{"materia":"Matemática","notas":[7.5,8,null,null]}],"aviso":""}`;
+}
+
+function promptRedacao({ tema, tipo, texto }) {
+  const enem = tipo !== "escola";
+  return `Você é um corretor de redação experiente e gentil, que ajuda estudantes brasileiros (11 a 18 anos) a escrever melhor.
+${texto ? `A redação do aluno está no texto abaixo.\nREDAÇÃO:\n"""${texto}"""` : "A redação do aluno está nas fotos (pode ser manuscrita). Leia com atenção."}
+${tema ? `Tema proposto: ${tema}` : "O tema não foi informado: deduza pelo texto."}
+
+${enem
+  ? `Corrija como no ENEM (texto dissertativo-argumentativo), dando de 0 a 200 em cada competência, só em múltiplos de 40:
+C1 Domínio da norma padrão da língua escrita; C2 Compreender a proposta e aplicar conceitos de várias áreas, dentro do tipo dissertativo-argumentativo; C3 Selecionar, relacionar, organizar e interpretar informações e argumentos; C4 Mecanismos linguísticos de coesão; C5 Proposta de intervenção (agente, ação, meio/modo, finalidade e detalhamento) respeitando os direitos humanos.
+"nota_total" é a soma (0 a 1000).`
+  : `Corrija como uma redação escolar do ensino fundamental, dando de 0 a 2 em cada critério (pode usar 0,5):
+C1 Ortografia e gramática; C2 Seguiu o tema e o tipo de texto; C3 Organização (introdução, desenvolvimento, conclusão e parágrafos); C4 Ligação entre as ideias (coesão); C5 Argumentos, exemplos e criatividade.
+"nota_total" é a soma (0 a 10).`}
+
+Regras:
+- Seja honesto, mas encorajador. Linguagem simples, falando com o aluno ("você").
+- Em cada competência: "comentario" (o que aconteceu, 1–2 frases, citando um trecho curto da redação entre aspas quando ajudar) e "como_melhorar" (uma ação concreta).
+- "erros": até 6 erros de português reais que aparecem no texto, cada um com "trecho" (como está) e "correcao".
+- "reescrita": pegue UM trecho fraco (até 2 frases) e mostre como ficaria melhor. NÃO reescreva a redação inteira.
+- Se o texto estiver ilegível, for muito curto (menos de 5 linhas) ou não for uma redação, deixe "competencias" vazio e explique em "aviso".
+- Nunca invente trechos que não estão no texto.
+
+Responda SOMENTE com JSON neste formato:
+{"tema":"","nota_total":0,"escala":"${enem ? "enem" : "escola"}","competencias":[{"n":1,"nome":"","nota":0,"comentario":"","como_melhorar":""}],"pontos_fortes":["",""],"erros":[{"trecho":"","correcao":""}],"reescrita":{"antes":"","depois":""},"aviso":""}`;
+}
+
 function promptEstudo({ materia, assunto }) {
   return `Você é um professor particular paciente que ajuda um estudante brasileiro do ensino fundamental ou médio a estudar para a prova.
 As fotos são páginas do caderno ou do livro dele.${materia ? `\nMatéria: ${materia}.` : ""}${assunto ? `\nA prova/atividade é: ${assunto}.` : ""}
@@ -205,7 +248,7 @@ module.exports = async (req, res) => {
   if (typeof dados === "string") { try { dados = JSON.parse(dados); } catch { return resposta(400, { erro: "Pedido inválido." }); } }
 
   const { modo, fotos, hoje, materia, assunto } = dados || {};
-  if (!["agenda", "estudo", "horario", "mapa", "banco", "enem", "duvida"].includes(modo)) return resposta(400, { erro: "Modo inválido." });
+  if (!["agenda", "estudo", "horario", "mapa", "banco", "enem", "duvida", "redacao", "boletim"].includes(modo)) return resposta(400, { erro: "Modo inválido." });
 
   // Questões oficiais do ENEM funcionam mesmo sem a chave (só ficam sem explicação da IA)
   if (modo === "enem") {
@@ -237,6 +280,29 @@ module.exports = async (req, res) => {
     const texto = String(dados.texto || "").slice(0, 8000).trim();
     if (!texto) return resposta(400, { erro: "Envie o resumo para montar o mapa." });
     return responderComIA(chave, [{ text: promptMapa({ titulo: String(dados.titulo || "").slice(0, 100), texto }) }]);
+  }
+
+  if (modo === "boletim") {
+    const f = Array.isArray(fotos) ? fotos[0] : null;
+    if (!f || typeof f.data !== "string" || !/^image\/(jpeg|png|webp)$/.test(f.mime || "")) return resposta(400, { erro: "Tire uma foto do boletim." });
+    if (f.data.length > MAX_BYTES_TOTAL) return resposta(413, { erro: "A foto ficou grande demais." });
+    return responderComIA(chave, [{ text: promptBoletim() }, { inline_data: { mime_type: f.mime, data: f.data } }]);
+  }
+
+  if (modo === "redacao") {
+    const texto = String(dados.texto || "").slice(0, 6000).trim();
+    const lista = Array.isArray(fotos) ? fotos.slice(0, 3) : [];
+    if (!texto && !lista.length) return resposta(400, { erro: "Tire foto da redação ou cole o texto." });
+    let soma = 0;
+    for (const f of lista) {
+      if (!f || typeof f.data !== "string" || !/^image\/(jpeg|png|webp)$/.test(f.mime || "")) return resposta(400, { erro: "Formato de foto inválido." });
+      soma += f.data.length;
+    }
+    if (soma > MAX_BYTES_TOTAL) return resposta(413, { erro: "As fotos ficaram grandes demais." });
+    return responderComIA(chave, [
+      { text: promptRedacao({ tema: String(dados.tema || "").slice(0, 300), tipo: dados.tipo === "escola" ? "escola" : "enem", texto }) },
+      ...lista.map((f) => ({ inline_data: { mime_type: f.mime, data: f.data } })),
+    ]);
   }
 
   if (modo === "duvida") {

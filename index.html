@@ -189,6 +189,9 @@
     </div>
     <div id="listaMateriais"></div>
   </section>
+
+  <!-- ================= MAIS ================= -->
+  <section id="telaMais" class="oculto"><div id="conteudoMais"></div></section>
 </div>
 
 <nav>
@@ -196,6 +199,7 @@
     <button id="navAgenda" class="ativo"><span class="i">🗓️</span>Agenda</button>
     <button id="navCrono"><span class="i">⏰</span>Cronograma</button>
     <button id="navEstudar"><span class="i">🧠</span>Estudar</button>
+    <button id="navMais"><span class="i">🧰</span>Mais</button>
   </div>
 </nav>
 
@@ -306,7 +310,11 @@ function salvarLocal() {
   try { localStorage.setItem(CHAVE, JSON.stringify(estado)); }
   catch (e) { toast("Não consegui salvar no aparelho. A memória pode estar cheia."); }
 }
-function salvar() { salvarLocal(); if (typeof agendarBackup === "function") agendarBackup(); }
+function salvar() {
+  salvarLocal();
+  if (typeof agendarBackup === "function") agendarBackup();
+  if (typeof verificarConquistas === "function") try { verificarConquistas(); } catch (e) {}
+}
 const novoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 /* ---------- utilidades ---------- */
@@ -401,7 +409,7 @@ function fecharModal() {
    NAVEGAÇÃO
    ============================================================ */
 function irPara(tela) {
-  for (const [t, sec, nav] of [["agenda", "#telaAgenda", "#navAgenda"], ["crono", "#telaCrono", "#navCrono"], ["estudar", "#telaEstudar", "#navEstudar"]]) {
+  for (const [t, sec, nav] of [["agenda", "#telaAgenda", "#navAgenda"], ["crono", "#telaCrono", "#navCrono"], ["estudar", "#telaEstudar", "#navEstudar"], ["mais", "#telaMais", "#navMais"]]) {
     $(sec).classList.toggle("oculto", tela !== t);
     $(nav).classList.toggle("ativo", tela === t);
   }
@@ -409,10 +417,12 @@ function irPara(tela) {
   if (tela === "agenda") renderAgenda();
   if (tela === "crono") renderCronograma();
   if (tela === "estudar") renderMateriais();
+  if (tela === "mais") renderMais();
 }
 $("#navAgenda").onclick = () => irPara("agenda");
 $("#navCrono").onclick = () => irPara("crono");
 $("#navEstudar").onclick = () => irPara("estudar");
+$("#navMais").onclick = () => irPara("mais");
 
 /* ============================================================
    AGENDA
@@ -1924,6 +1934,7 @@ async function resolverDuvida(pergunta, simples) {
     parar();
     const d = validarDuvida(r);
     if (!d) { toast(r.aviso || "Não consegui entender o exercício. Tente uma foto mais de perto e com boa luz.", 4500); return; }
+    if (!simples) { contar("duvidas"); salvar(); }
     mostrarDuvida(d, pergunta);
   } catch (e) {
     parar();
@@ -2084,15 +2095,424 @@ function renderHoje() {
     const b = hoje && hoje.blocos.find((x) => !estado.feitosCrono[x.chave]);
     if (b) html += `<div class="card" style="margin-top:10px;display:flex;gap:10px;align-items:center">
         <div style="flex:1"><div class="pequeno">⏰ Hoje no cronograma · ${b.ini}–${b.fim}</div><b>${iconeMateria(b.materia)} ${esc(b.materia)}</b><div class="pequeno">${esc(b.texto)}</div></div>
-        <button class="mini roxo" data-hoje="${acao(() => irPara("crono"))}">Ver</button></div>`;
+        <button class="mini roxo" data-hoje="${acao(() => abrirFoco(b))}">⏱️ Focar</button></div>`;
     else if (hoje && hoje.blocos.length) html += `<div class="card pequeno" style="margin-top:10px">✅ Você fez todos os blocos de estudo de hoje. Mandou bem!</div>`;
   }
 
+  // depois das 17h: lembrar de arrumar a mochila de amanhã
+  if (new Date().getHours() >= 17 && estado.rotina) {
+    const mo = itensMochila();
+    const feitos = (estado.mochila && estado.mochila[mo.iso] || []).length;
+    if (mo.temAula && feitos < mo.itens.length) html += `<div class="card" style="margin-top:10px;display:flex;gap:10px;align-items:center">
+        <div style="flex:1"><b>🎒 Mochila de amanhã</b><div class="pequeno">${feitos ? `${feitos} de ${mo.itens.length} itens prontos` : `${mo.itens.length} itens para conferir`}</div></div>
+        <button class="mini roxo" data-hoje="${acao(abrirMochila)}">Arrumar</button></div>`;
+  }
   alvo.innerHTML = html ? `<h3>Hoje</h3>${html}` : "";
   ligarHoje();
 }
 function ligarHoje() {
   document.querySelectorAll("[data-hoje]").forEach((b) => b.onclick = () => { const f = acoesHoje[+b.dataset.hoje]; if (f) f(); });
+}
+
+/* ============================================================
+   ABA "MAIS": modo foco, notas, redação, mochila e conquistas
+   ============================================================ */
+function contar(nome, n = 1) { estado.contadores = estado.contadores || {}; estado.contadores[nome] = (estado.contadores[nome] || 0) + n; }
+
+function renderMais() {
+  const item = (id, ic, t, d) => `<button class="card" id="${id}" style="text-align:left;display:flex;gap:12px;align-items:center;width:100%"><span style="font-size:28px">${ic}</span><span style="flex:1"><b>${t}</b><br><span class="pequeno">${d}</span></span><span style="color:var(--suave)">›</span></button>`;
+  const c = estado.contadores || {};
+  const ganhas = calcularConquistas().filter((x) => x.ok).length;
+  $("#conteudoMais").innerHTML = `
+    <div class="hero">
+      <div class="titulo">Mais ferramentas.</div>
+      <p>Foco para estudar, suas notas, correção de redação e a mochila de amanhã.</p>
+    </div>
+    <div class="lista" style="margin-top:12px">
+      ${item("mFoco", "⏱️", "Modo foco", `25 min estudando + 5 de pausa${c.focos ? ` · ${c.focos} ${c.focos === 1 ? "sessão feita" : "sessões feitas"}` : ""}`)}
+      ${item("mNotas", "📒", "Minhas notas", "Média por matéria e quanto você precisa tirar")}
+      ${item("mRedacao", "✍️", "Corrigir redação", "Nota estilo ENEM ou da escola, com dicas")}
+      ${item("mMochila", "🎒", "Mochila de amanhã", "O que levar, pelo seu horário e pela agenda")}
+      ${item("mConq", "🏅", "Conquistas", `${ganhas} de ${CONQUISTAS.length} conquistadas`)}
+      ${item("mDuvida", "🙋", "Tira-dúvida", "Foto do exercício e explicação passo a passo")}
+      ${item("mConta", "⚙️", "Conta, turma e avisos", "Código de recuperação, turma e notificações")}
+    </div>`;
+  $("#mFoco").onclick = () => abrirFoco();
+  $("#mNotas").onclick = abrirNotas;
+  $("#mRedacao").onclick = abrirRedacao;
+  $("#mMochila").onclick = abrirMochila;
+  $("#mConq").onclick = abrirConquistas;
+  $("#mDuvida").onclick = () => abrirDuvida();
+  $("#mConta").onclick = abrirConta;
+}
+
+/* ---------- ⏱️ modo foco ---------- */
+let focoTimer = null;
+function abrirFoco(bloco = null) {
+  const FOCO = 25 * 60, PAUSA = 5 * 60;
+  let fase = "pronto", fim = 0, restante = FOCO, pausadoEm = null;
+  const mats = [...new Set([...(estado.rotina ? Object.keys(estado.rotina.materias).filter((m) => !semEstudo(m)) : BASE_MATERIAS)])];
+  let materia = bloco ? bloco.materia : (mats[0] || "");
+  const mmss = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  const parar = () => { clearInterval(focoTimer); focoTimer = null; };
+  const desenhar = () => {
+    const emPausa = fase === "pausa" || fase === "pausaRodando";
+    const total = emPausa ? PAUSA : FOCO;
+    const pct = Math.round(100 * (1 - restante / total));
+    abrirModal(`
+      <div class="topo"><b>${emPausa ? "Pausa ☕" : "Modo foco ⏱️"}</b><button class="fechar" id="fcFechar">✕</button></div>
+      ${fase === "pronto" ? `
+        <label class="campo">O que você vai estudar?</label>
+        <select id="fcMat">${[...new Set([materia, ...mats])].filter(Boolean).map((m) => `<option ${m === materia ? "selected" : ""}>${esc(m)}</option>`).join("")}</select>
+        ${bloco ? `<p class="pequeno">${esc(bloco.texto)}</p>` : ""}
+        <p class="pequeno">Deixe o celular de lado, sem redes sociais. Quando o tempo acabar, eu aviso.</p>` : `<div class="pequeno" style="text-align:center">${iconeMateria(materia)} ${esc(materia)}</div>`}
+      <div style="position:relative;width:220px;height:220px;margin:16px auto">
+        <svg viewBox="0 0 100 100" style="width:100%;height:100%;transform:rotate(-90deg)">
+          <circle cx="50" cy="50" r="44" fill="none" stroke="var(--roxo-claro)" stroke-width="8"/>
+          <circle cx="50" cy="50" r="44" fill="none" stroke="${emPausa ? "#12b886" : "var(--roxo)"}" stroke-width="8" stroke-linecap="round" stroke-dasharray="${2 * Math.PI * 44}" stroke-dashoffset="${2 * Math.PI * 44 * (1 - pct / 100)}"/>
+        </svg>
+        <div id="fcTempo" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:46px;font-weight:800;font-variant-numeric:tabular-nums">${mmss(restante)}</div>
+      </div>
+      ${fase === "pronto" ? `<button class="botao primario" id="fcIr">▶️ Começar 25 min</button>` : ""}
+      ${fase === "rodando" || fase === "pausaRodando" ? `<button class="botao secundario" id="fcPausar">⏸️ Pausar</button>` : ""}
+      ${fase === "parado" ? `<button class="botao primario" id="fcVoltar">▶️ Continuar</button>` : ""}
+      ${fase === "pausa" ? `<p style="text-align:center">🎉 Mandou bem! Levanta, bebe água e estica o corpo.</p><button class="botao primario" id="fcPausaIr">☕ Começar pausa de 5 min</button><div style="height:8px"></div><button class="botao secundario" id="fcDeNovo">⏱️ Mais 25 min de foco</button>` : ""}
+      ${fase === "acabou" ? `<p style="text-align:center">Pausa acabou! Quer mais uma rodada?</p><button class="botao primario" id="fcDeNovo">⏱️ Mais 25 min de foco</button>` : ""}`);
+    $("#fcFechar").onclick = () => { if ((fase === "rodando" || fase === "parado") && !confirm("Parar o foco agora? Esta sessão não vai contar.")) return; parar(); fecharModal(); };
+    if ($("#fcMat")) $("#fcMat").onchange = (e) => materia = e.target.value;
+    if ($("#fcIr")) $("#fcIr").onclick = () => iniciar("rodando", FOCO);
+    if ($("#fcPausar")) $("#fcPausar").onclick = () => { parar(); pausadoEm = fase; fase = "parado"; desenhar(); };
+    if ($("#fcVoltar")) $("#fcVoltar").onclick = () => iniciar(pausadoEm || "rodando", restante);
+    if ($("#fcPausaIr")) $("#fcPausaIr").onclick = () => iniciar("pausaRodando", PAUSA);
+    if ($("#fcDeNovo")) $("#fcDeNovo").onclick = () => iniciar("rodando", FOCO);
+  };
+  const avisar = (titulo, corpo) => {
+    try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch (e) {}
+    if ("Notification" in window && Notification.permission === "granted" && navigator.serviceWorker) {
+      navigator.serviceWorker.ready.then((r) => r.showNotification(titulo, { body: corpo, icon: "/icon-192.png", tag: "estudai-foco" })).catch(() => {});
+    }
+  };
+  const iniciar = (novaFase, segundos) => {
+    parar(); fase = novaFase; restante = segundos; fim = Date.now() + segundos * 1000; desenhar();
+    focoTimer = setInterval(() => {
+      restante = Math.max(0, Math.round((fim - Date.now()) / 1000));
+      const el = $("#fcTempo"); if (!el) { parar(); return; }
+      if (restante > 0) { el.textContent = mmss(restante); const arco = document.querySelectorAll("#camadaModal circle")[1]; if (arco) arco.setAttribute("stroke-dashoffset", String(2 * Math.PI * 44 * (restante / (fase === "pausaRodando" ? PAUSA : FOCO)))); return; }
+      parar();
+      if (fase === "rodando") {
+        contar("focos"); contar("minutosFoco", 25);
+        if (bloco && bloco.chave) estado.feitosCrono[bloco.chave] = true;
+        salvar(); registrarUso("foco", materia);
+        avisar("⏱️ 25 minutos de foco! 🎉", "Hora de uma pausa de 5 minutos.");
+        fase = "pausa"; restante = PAUSA;
+      } else { avisar("☕ Pausa acabou", "Bora mais uma rodada?"); fase = "acabou"; restante = FOCO; }
+      desenhar();
+    }, 1000);
+  };
+  desenhar();
+}
+
+/* ---------- 📒 minhas notas ---------- */
+function confNotas() {
+  estado.notas = { media: 6, periodos: 4, materias: {}, ...(estado.notas || {}) };
+  const n = estado.notas;
+  const base = estado.rotina ? Object.keys(estado.rotina.materias).filter((m) => !semEstudo(m)) : BASE_MATERIAS;
+  for (const m of base) if (!n.materias[m]) n.materias[m] = [];
+  return n;
+}
+function numNota(v) { const x = parseFloat(String(v).replace(",", ".")); return Number.isFinite(x) && x >= 0 && x <= 10 ? x : null; }
+function fmt1(x) { return x.toFixed(1).replace(".", ","); }
+function situacaoNota(lista, media, periodos) {
+  const vals = lista.slice(0, periodos).map(numNota);
+  const feitas = vals.filter((v) => v != null);
+  if (!feitas.length) return { media: null, txt: "Sem notas ainda", cor: "var(--suave)" };
+  const soma = feitas.reduce((a, b) => a + b, 0);
+  const mediaAtual = soma / feitas.length;
+  const faltam = periodos - feitas.length;
+  if (!faltam) return mediaAtual >= media ? { media: mediaAtual, txt: "✅ Aprovado", cor: "#087f5b" } : { media: mediaAtual, txt: "⚠️ Abaixo da média: fale com o professor sobre recuperação", cor: "var(--vermelho)" };
+  const precisa = (media * periodos - soma) / faltam;
+  if (precisa <= 0) return { media: mediaAtual, txt: "✅ Já garantiu a média!", cor: "#087f5b" };
+  if (precisa > 10) return { media: mediaAtual, txt: `⚠️ Precisaria de mais de 10 em cada ${faltam === 1 ? "período" : "um dos " + faltam + " períodos"} que faltam. Peça ajuda e veja a recuperação.`, cor: "var(--vermelho)" };
+  return { media: mediaAtual, txt: `🎯 Precisa de ${fmt1(precisa)} ${faltam === 1 ? "no próximo período" : `em cada um dos ${faltam} períodos que faltam`}`, cor: precisa >= 8 ? "#b35c00" : "var(--roxo)" };
+}
+function abrirNotas() {
+  const n = confNotas();
+  const rot = n.periodos === 3 ? "T" : "B";
+  abrirModal(`
+    <div class="topo"><b>Minhas notas 📒</b><button class="fechar" data-fechar>✕</button></div>
+    <div class="linha">
+      <div><label class="campo" style="margin-top:0">Média para passar</label>
+        <select id="ntMedia">${[5, 6, 7].map((v) => `<option value="${v}" ${v === n.media ? "selected" : ""}>${v},0</option>`).join("")}</select></div>
+      <div><label class="campo" style="margin-top:0">Ano dividido em</label>
+        <select id="ntPer"><option value="4" ${n.periodos === 4 ? "selected" : ""}>4 bimestres</option><option value="3" ${n.periodos === 3 ? "selected" : ""}>3 trimestres</option></select></div>
+    </div>
+    <button class="botao secundario" id="ntFoto" style="margin-top:10px">📷 Fotografar o boletim</button>
+    <p class="pequeno">Ou digite as notas de 0 a 10. Deixe em branco o que ainda não saiu.</p>
+    ${Object.keys(n.materias).map((m) => {
+      const s = situacaoNota(n.materias[m], n.media, n.periodos);
+      return `<div class="card" style="margin-top:8px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><b>${iconeMateria(m)} ${esc(m)}</b><span style="font-weight:800;color:${s.cor}">${s.media != null ? fmt1(s.media) : "–"}</span></div>
+        <div style="display:grid;grid-template-columns:repeat(${n.periodos},1fr);gap:6px;margin-top:6px">
+          ${Array.from({ length: n.periodos }, (_, i) => `<input inputmode="decimal" placeholder="${rot}${i + 1}" data-nota="${esc(m)}|${i}" value="${esc(n.materias[m][i] ?? "")}" style="text-align:center;padding:8px;min-width:0;width:100%;box-sizing:border-box">`).join("")}
+        </div>
+        <div class="pequeno" style="margin-top:6px;color:${s.cor}">${s.txt}</div>
+      </div>`;
+    }).join("")}
+    <div class="linha" style="margin-top:10px"><input id="ntNova" placeholder="Outra matéria (ex.: Espanhol)" maxlength="30"><button class="mini roxo" id="ntAdd" style="flex:0 0 auto">＋ Adicionar</button></div>
+    <p class="pequeno">A conta usa média simples. Se sua escola usa peso ou recuperação diferente, use como referência.</p>`);
+  $("#ntMedia").onchange = (e) => { n.media = +e.target.value; salvar(); abrirNotas(); };
+  $("#ntPer").onchange = (e) => { n.periodos = +e.target.value; salvar(); abrirNotas(); };
+  document.querySelectorAll("[data-nota]").forEach((inp) => inp.onchange = () => {
+    const [m, i] = inp.dataset.nota.split("|");
+    const v = inp.value.trim();
+    if (v && numNota(v) == null) { toast("Digite uma nota de 0 a 10."); inp.value = ""; return; }
+    n.materias[m][+i] = v ? fmt1(numNota(v)) : "";
+    salvar(); abrirNotas();
+  });
+  $("#ntFoto").onclick = () => {
+    const inp = $("#arquivoDuvida"); inp.removeAttribute("capture");
+    inp.onchange = async (ev) => {
+      const arq = ev.target.files[0]; ev.target.value = ""; if (!arq) return;
+      let foto; try { foto = await reduzirFoto(arq, 1800, 0.82); } catch (e) { toast(e.message); return; }
+      const parar = carregando("Lendo seu boletim…");
+      try {
+        const r = await chamarIA({ modo: "boletim", fotos: [{ mime: foto.mime, data: foto.data }] });
+        parar(); conferirBoletim(r);
+      } catch (e) {
+        parar();
+        erroIA(e, () => conferirBoletim({ periodos: 4, media: 6, materias: [{ materia: "Matemática", notas: [5.5, 6, null, null] }, { materia: "Português", notas: [8, 7.5, null, null] }, { materia: "História", notas: [9, 8.5, null, null] }] }));
+      }
+    };
+    inp.click();
+  };
+  $("#ntAdd").onclick = () => { const m = $("#ntNova").value.trim(); if (!m) return; if (!n.materias[m]) n.materias[m] = []; salvar(); abrirNotas(); };
+}
+
+// Mostra o que a IA leu do boletim para o aluno conferir antes de salvar
+function conferirBoletim(r) {
+  r = limparTudo(r || {});
+  const per = r.periodos === 3 ? 3 : 4;
+  const lidas = (Array.isArray(r.materias) ? r.materias : []).filter((m) => m && m.materia)
+    .map((m) => ({ materia: String(m.materia).slice(0, 30), notas: Array.from({ length: per }, (_, i) => { const v = numNota((m.notas || [])[i]); return v == null ? "" : fmt1(v); }) }))
+    .filter((m) => m.notas.some(Boolean)).slice(0, 20);
+  if (!lidas.length) { toast(r.aviso || "Não consegui ler o boletim. Tente uma foto reta, de perto e com boa luz.", 4500); return; }
+  const rot = per === 3 ? "T" : "B";
+  abrirModal(`
+    <div class="topo"><b>Confira as notas 📒</b><button class="fechar" data-fechar>✕</button></div>
+    <p class="pequeno" style="margin-top:0">Foi isso que eu li do boletim. Corrija o que estiver errado antes de salvar.</p>
+    ${lidas.map((m, k) => `<div class="card" style="margin-top:8px"><b>${iconeMateria(m.materia)} ${esc(m.materia)}</b>
+      <div style="display:grid;grid-template-columns:repeat(${per},1fr);gap:6px;margin-top:6px">
+        ${m.notas.map((v, i) => `<input inputmode="decimal" placeholder="${rot}${i + 1}" data-bol="${k}|${i}" value="${esc(v)}" style="text-align:center;padding:8px;min-width:0;width:100%;box-sizing:border-box">`).join("")}
+      </div></div>`).join("")}
+    <div style="height:12px"></div>
+    <button class="botao primario" id="bolSalvar">Salvar notas</button>`);
+  $("#bolSalvar").onclick = () => {
+    document.querySelectorAll("[data-bol]").forEach((inp) => { const [k, i] = inp.dataset.bol.split("|").map(Number); const v = numNota(inp.value.trim()); lidas[k].notas[i] = v == null ? "" : fmt1(v); });
+    const n = confNotas();
+    n.periodos = per;
+    if ([5, 6, 7].includes(Math.round(Number(r.media)))) n.media = Math.round(Number(r.media));
+    for (const m of lidas) n.materias[m.materia] = m.notas;
+    salvar(); toast(`📒 Notas de ${lidas.length} ${lidas.length === 1 ? "matéria salvas" : "matérias salvas"}`); abrirNotas();
+  };
+}
+
+/* ---------- ✍️ corrigir redação ---------- */
+let fotosRedacao = [];
+function abrirRedacao() {
+  fotosRedacao = [];
+  let tipo = (estado.redacao && estado.redacao.tipo) || "enem";
+  const desenhar = (tema = "", texto = "") => {
+    abrirModal(`
+      <div class="topo"><b>Corrigir redação ✍️</b><button class="fechar" data-fechar>✕</button></div>
+      <div class="abas" style="margin-top:0">
+        <button data-tipo="enem" class="${tipo === "enem" ? "ativo" : ""}">ENEM (0–1000)</button>
+        <button data-tipo="escola" class="${tipo === "escola" ? "ativo" : ""}">Escola (0–10)</button>
+      </div>
+      <label class="campo">Tema (opcional)</label>
+      <input id="rdTema" maxlength="300" value="${esc(tema)}" placeholder="Ex.: Desafios da educação digital no Brasil">
+      <label class="campo">Fotos da redação (${fotosRedacao.length}/3)</label>
+      <div class="fotos">
+        ${fotosRedacao.map((f, i) => `<div class="f"><img src="${f.preview}" alt="Página ${i + 1}"><button class="x" data-rm="${i}">✕</button></div>`).join("")}
+        ${fotosRedacao.length < 3 ? `<button class="f add" id="rdCam">📷<br>Tirar foto</button><button class="f add" id="rdGal">🖼️<br>Da galeria</button>` : ""}
+      </div>
+      <label class="campo">Ou cole o texto</label>
+      <textarea id="rdTexto" maxlength="6000" style="min-height:110px" placeholder="Cole aqui se escreveu no computador">${esc(texto)}</textarea>
+      <div style="height:12px"></div>
+      <button class="botao primario" id="rdIr">✨ Corrigir minha redação</button>
+      <p class="pequeno">A correção é uma ajuda para treinar, não substitui o professor. As fotos não ficam guardadas.</p>`);
+    const vals = () => [$("#rdTema").value, $("#rdTexto").value];
+    document.querySelectorAll("[data-tipo]").forEach((b) => b.onclick = () => { tipo = b.dataset.tipo; estado.redacao = { ...(estado.redacao || {}), tipo }; salvarLocal(); desenhar(...vals()); });
+    document.querySelectorAll("[data-rm]").forEach((b) => b.onclick = () => { const v = vals(); fotosRedacao.splice(+b.dataset.rm, 1); desenhar(...v); });
+    const pegar = (camera) => {
+      const v = vals(); const inp = $("#arquivoDuvida");
+      if (camera) inp.setAttribute("capture", "environment"); else inp.removeAttribute("capture");
+      inp.onchange = async (ev) => {
+        const arqs = [...ev.target.files].slice(0, 3 - fotosRedacao.length); ev.target.value = "";
+        for (const a of arqs) { try { fotosRedacao.push(await reduzirFoto(a, 1600, 0.8)); } catch (e) { toast(e.message); } }
+        desenhar(...v);
+      };
+      inp.click();
+    };
+    if ($("#rdCam")) $("#rdCam").onclick = () => pegar(true);
+    if ($("#rdGal")) $("#rdGal").onclick = () => pegar(false);
+    $("#rdIr").onclick = async () => {
+      const [tema, texto] = vals();
+      if (!fotosRedacao.length && texto.trim().length < 200) { toast("Tire foto da redação ou cole o texto completo."); return; }
+      const parar = carregando("Lendo e corrigindo sua redação…");
+      try {
+        const r = await chamarIA({ modo: "redacao", tipo, tema: tema.trim(), texto: texto.trim(), fotos: fotosRedacao.map((f) => ({ mime: f.mime, data: f.data })) });
+        parar();
+        const c = validarRedacao(r, tipo);
+        if (!c) { toast(r.aviso || "Não consegui ler a redação. Tente fotos mais nítidas, com boa luz.", 4500); return; }
+        guardarRedacao(c); mostrarCorrecao(c);
+      } catch (e) {
+        parar();
+        erroIA(e, () => { const c = validarRedacao(DEMO_REDACAO(), "enem"); mostrarCorrecao(c); });
+      }
+    };
+  };
+  desenhar();
+}
+function validarRedacao(r, tipo) {
+  r = limparTudo(r || {});
+  const enem = (r.escala || tipo) !== "escola";
+  const max = enem ? 200 : 2;
+  const comps = (Array.isArray(r.competencias) ? r.competencias : []).slice(0, 5).map((c, i) => ({
+    n: i + 1, nome: String(c.nome || `Competência ${i + 1}`).slice(0, 120),
+    nota: Math.max(0, Math.min(max, Number(c.nota) || 0)),
+    comentario: String(c.comentario || "").slice(0, 500), como_melhorar: String(c.como_melhorar || "").slice(0, 400),
+  }));
+  if (!comps.length) return null;
+  const total = comps.reduce((a, c) => a + c.nota, 0);
+  return {
+    enem, tema: String(r.tema || "").slice(0, 200), total, max: max * comps.length, comps,
+    fortes: (Array.isArray(r.pontos_fortes) ? r.pontos_fortes : []).map(String).filter(Boolean).slice(0, 4),
+    erros: (Array.isArray(r.erros) ? r.erros : []).filter((e) => e && e.trecho).map((e) => ({ trecho: String(e.trecho).slice(0, 160), correcao: String(e.correcao || "").slice(0, 160) })).slice(0, 6),
+    reescrita: r.reescrita && r.reescrita.depois ? { antes: String(r.reescrita.antes || "").slice(0, 500), depois: String(r.reescrita.depois).slice(0, 600) } : null,
+    aviso: String(r.aviso || "").slice(0, 300),
+  };
+}
+function guardarRedacao(c) {
+  contar("redacoes");
+  estado.redacao = { ...(estado.redacao || {}), historico: [...((estado.redacao && estado.redacao.historico) || []), { data: hojeISO(), tema: c.tema, total: c.total, max: c.max }].slice(-20) };
+  salvar();
+}
+function mostrarCorrecao(c) {
+  const pctCor = (v, max) => corPronto(Math.round((100 * v) / max));
+  const nota = c.enem ? String(c.total) : fmt1(c.total);
+  const hist = ((estado.redacao && estado.redacao.historico) || []).filter((h) => h.max === c.max);
+  const anterior = hist.length >= 2 ? hist[hist.length - 2] : null;
+  abrirModal(`
+    <div class="topo"><b>Sua correção ✍️</b><button class="fechar" data-fechar>✕</button></div>
+    ${c.aviso ? `<div class="aviso">${esc(c.aviso)}</div>` : ""}
+    <div class="card placar"><div class="n" style="color:${pctCor(c.total, c.max)}">${nota}</div>
+      <p>de ${c.enem ? "1000" : "10"}${c.tema ? ` · ${esc(c.tema)}` : ""}</p>
+      ${anterior ? `<p class="pequeno">${c.total > anterior.total ? `📈 Subiu ${c.enem ? c.total - anterior.total : fmt1(c.total - anterior.total)} pontos desde a última!` : c.total < anterior.total ? "Na última foi melhor. Veja as dicas abaixo 💪" : "Igual à última. Bora subir!"}</p>` : ""}
+    </div>
+    ${c.comps.map((k) => `<div class="card" style="margin-top:8px">
+      <div style="display:flex;justify-content:space-between;gap:8px"><b style="font-size:14px">C${k.n} · ${esc(k.nome)}</b><b style="color:${pctCor(k.nota, c.max / c.comps.length)}">${c.enem ? k.nota : fmt1(k.nota)}</b></div>
+      <div class="progresso" style="margin:6px 0"><div style="width:${Math.round((100 * k.nota) / (c.max / c.comps.length))}%;background:${pctCor(k.nota, c.max / c.comps.length)}"></div></div>
+      ${k.comentario ? `<div class="pequeno">${esc(k.comentario)}</div>` : ""}
+      ${k.como_melhorar ? `<div style="font-size:14px;margin-top:4px">👉 ${esc(k.como_melhorar)}</div>` : ""}
+    </div>`).join("")}
+    ${c.fortes.length ? `<h3>👏 Pontos fortes</h3><div class="card"><ul style="margin:0;padding-left:18px">${c.fortes.map((f) => `<li>${esc(f)}</li>`).join("")}</ul></div>` : ""}
+    ${c.erros.length ? `<h3>✏️ Corrija estes trechos</h3><div class="card">${c.erros.map((e) => `<div style="margin:4px 0"><s style="color:var(--vermelho)">${esc(e.trecho)}</s> → <b style="color:#087f5b">${esc(e.correcao)}</b></div>`).join("")}</div>` : ""}
+    ${c.reescrita ? `<h3>💡 Como esse trecho poderia ficar</h3><div class="card">${c.reescrita.antes ? `<div class="pequeno"><b>Antes:</b> ${esc(c.reescrita.antes)}</div>` : ""}<div style="margin-top:6px"><b>Melhor:</b> ${esc(c.reescrita.depois)}</div></div>` : ""}
+    <div style="height:12px"></div>
+    <button class="botao primario" id="rdOutra">✍️ Corrigir outra redação</button>`);
+  $("#rdOutra").onclick = abrirRedacao;
+}
+function DEMO_REDACAO() {
+  return {
+    tema: "Desafios da educação digital no Brasil", nota_total: 720, escala: "enem",
+    competencias: [
+      { nome: "Norma padrão da língua", nota: 160, comentario: "Poucos desvios, mas há erros de crase e concordância.", como_melhorar: "Revise as crases antes de palavras femininas, como \"à escola\"." },
+      { nome: "Tema e tipo de texto", nota: 160, comentario: "Você entendeu o tema e usou um repertório (dados do IBGE).", como_melhorar: "Use mais um repertório de outra área, como filosofia ou história." },
+      { nome: "Argumentação", nota: 120, comentario: "O segundo argumento ficou repetindo o primeiro.", como_melhorar: "Escolha dois argumentos diferentes: um sobre acesso à internet e outro sobre formação dos professores." },
+      { nome: "Coesão", nota: 160, comentario: "Bons conectivos entre os parágrafos.", como_melhorar: "Varie os conectivos dentro dos parágrafos (\"além disso\", \"nesse sentido\")." },
+      { nome: "Proposta de intervenção", nota: 120, comentario: "Tem ação e agente, mas falta o meio e o detalhamento.", como_melhorar: "Diga COMO será feito (meio) e explique um dos elementos (detalhamento)." },
+    ],
+    pontos_fortes: ["Introdução clara, com a tese bem definida", "Uso de dado real para sustentar o argumento"],
+    erros: [{ trecho: "a escola", correcao: "à escola" }, { trecho: "os aluno", correcao: "os alunos" }],
+    reescrita: { antes: "O governo deve fazer algo para melhorar.", depois: "O Ministério da Educação deve ampliar a internet nas escolas públicas, por meio de parcerias com empresas de telecomunicação, a fim de reduzir a desigualdade digital." },
+    aviso: "",
+  };
+}
+
+/* ---------- 🎒 mochila de amanhã ---------- */
+function itensMochila() {
+  const am = new Date(hojeISO() + "T12:00:00"); am.setDate(am.getDate() + 1);
+  const iso = am.toISOString().slice(0, 10), dow = am.getDay();
+  const dia = estado.rotina && estado.rotina.dias[dow];
+  const materias = dia && dia.aula ? [...new Set(dia.materias || [])] : [];
+  const entregas = estado.tarefas.filter((t) => !t.feito && t.data === iso);
+  const itens = [
+    ...materias.map((m) => ({ id: `mat:${m}`, txt: semEstudo(m) && /f[ií]sica/i.test(m) ? `${iconeMateria(m)} ${m}: roupa e tênis` : `${iconeMateria(m)} ${m}: caderno e livro` })),
+    ...entregas.map((t) => ({ id: `tar:${t.id}`, txt: `${t.tipo === "prova" ? "📝 Prova" : t.tipo === "trabalho" ? "📎 Entregar trabalho" : t.tipo === "apresentacao" ? "🎤 Apresentação" : "📌 " + (TIPOS[t.tipo] || "Atividade")}: ${t.titulo}${t.detalhes ? ` (${t.detalhes})` : ""}` })),
+    ...(entregas.some((t) => t.tipo === "prova") ? [{ id: "x:prova", txt: "✏️ Lápis, borracha, caneta e calculadora (se pode)" }] : []),
+    { id: "x:agua", txt: "💧 Garrafinha de água e lanche" },
+  ];
+  return { iso, dow, itens, temAula: !!(dia && dia.aula), semRotina: !estado.rotina };
+}
+function abrirMochila() {
+  const { iso, dow, itens, temAula, semRotina } = itensMochila();
+  estado.mochila = estado.mochila || {};
+  for (const k of Object.keys(estado.mochila)) if (k < hojeISO()) delete estado.mochila[k];
+  const marcados = new Set(estado.mochila[iso] || []);
+  abrirModal(`
+    <div class="topo"><b>Mochila de amanhã 🎒</b><button class="fechar" data-fechar>✕</button></div>
+    <div class="pequeno">${DIAS_SEM[dow]}, ${iso.split("-").reverse().slice(0, 2).join("/")}</div>
+    ${semRotina ? `<div class="aviso" style="margin-top:8px">Monte seu cronograma (com as matérias de cada dia) para eu saber o que vai ter amanhã.</div>` : !temAula ? `<div class="aviso" style="margin-top:8px">Amanhã não tem aula no seu horário. 🌴</div>` : ""}
+    <div class="lista" style="margin-top:10px">
+      ${itens.map((it) => `<button class="card tarefa ${marcados.has(it.id) ? "feita" : ""}" data-moch="${esc(it.id)}" style="width:100%;text-align:left">
+        <span class="check ${marcados.has(it.id) ? "on" : ""}">${marcados.has(it.id) ? "✓" : ""}</span><div class="corpo"><div class="t" style="font-weight:600">${esc(it.txt)}</div></div></button>`).join("")}
+    </div>
+    ${itens.length && marcados.size >= itens.length ? `<p style="text-align:center;margin-top:12px">🎒 Mochila pronta! Boa noite de sono 😴</p>` : ""}`);
+  document.querySelectorAll("[data-moch]").forEach((b) => b.onclick = () => {
+    const id = b.dataset.moch;
+    if (marcados.has(id)) marcados.delete(id); else marcados.add(id);
+    estado.mochila[iso] = [...marcados]; salvarLocal(); abrirMochila();
+  });
+}
+
+/* ---------- 🏅 conquistas (sem sequência de dias, sem pressão) ---------- */
+const CONQUISTAS = [
+  { id: "foto", ic: "📷", nome: "Primeira anotação", desc: "Anotar a primeira prova ou trabalho", meta: 1, v: () => estado.tarefas.length },
+  { id: "feitas", ic: "✅", nome: "Em dia", desc: "Concluir 10 atividades", meta: 10, v: () => estado.tarefas.filter((t) => t.feito).length },
+  { id: "material", ic: "📚", nome: "Do caderno pro app", desc: "Criar 3 materiais de estudo", meta: 3, v: () => estado.materiais.filter((m) => !m.banco).length },
+  { id: "cards", ic: "🃏", nome: "Mestre dos cards", desc: "Terminar os flashcards de 5 materiais", meta: 5, v: () => estado.materiais.filter((m) => m.cardsFeitos).length },
+  { id: "simulado", ic: "🎯", nome: "Mandou bem", desc: "Tirar 80% ou mais em 5 simulados", meta: 5, v: () => estado.materiais.filter((m) => (m.melhorNota || 0) >= 80).length },
+  { id: "cem", ic: "🏆", nome: "Gabaritou", desc: "Tirar 100% em um simulado", meta: 1, v: () => estado.materiais.filter((m) => m.melhorNota === 100).length },
+  { id: "duvida", ic: "🙋", nome: "Curioso", desc: "Tirar 5 dúvidas", meta: 5, v: () => (estado.contadores || {}).duvidas || 0 },
+  { id: "foco", ic: "⏱️", nome: "Focado", desc: "Fazer 10 sessões de foco", meta: 10, v: () => (estado.contadores || {}).focos || 0 },
+  { id: "redacao", ic: "✍️", nome: "Redator", desc: "Corrigir 3 redações", meta: 3, v: () => (estado.contadores || {}).redacoes || 0 },
+  { id: "crono", ic: "⏰", nome: "Organizado", desc: "Montar o cronograma", meta: 1, v: () => (estado.rotina ? 1 : 0) },
+  { id: "turma", ic: "👥", nome: "Em equipe", desc: "Entrar ou criar uma turma", meta: 1, v: () => (estado.turma ? 1 : 0) },
+  { id: "enem", ic: "🎓", nome: "Rumo ao ENEM", desc: "Fazer um simulado do ENEM ou de olimpíada", meta: 1, v: () => estado.materiais.filter((m) => (m.banco === "enem" || m.banco === "olimpiada") && m.melhorNota != null).length },
+];
+function calcularConquistas() { return CONQUISTAS.map((c) => { const v = Math.min(c.meta, c.v() || 0); return { ...c, atual: v, ok: v >= c.meta }; }); }
+function verificarConquistas() {
+  if (!estado.conquistas) { estado.conquistas = calcularConquistas().filter((c) => c.ok).map((c) => c.id); salvarLocal(); return; } // primeira vez: não comemora o que já tinha
+  const novas = calcularConquistas().filter((c) => c.ok && !estado.conquistas.includes(c.id));
+  if (!novas.length) return;
+  estado.conquistas = [...estado.conquistas, ...novas.map((c) => c.id)]; salvarLocal();
+  setTimeout(() => toast(`🏅 Nova conquista: ${novas[0].ic} ${novas[0].nome}!`, 3500), 600);
+}
+function abrirConquistas() {
+  const lista = calcularConquistas();
+  const c = estado.contadores || {};
+  abrirModal(`
+    <div class="topo"><b>Conquistas 🏅</b><button class="fechar" data-fechar>✕</button></div>
+    <p class="pequeno" style="margin-top:0">${lista.filter((x) => x.ok).length} de ${lista.length}. Cada conquista é um hábito que ajuda na nota, no seu ritmo.</p>
+    ${c.minutosFoco ? `<div class="card" style="text-align:center;margin-bottom:8px"><b>${Math.floor(c.minutosFoco / 60) ? `${Math.floor(c.minutosFoco / 60)}h ` : ""}${c.minutosFoco % 60}min</b><div class="pequeno">estudando no modo foco</div></div>` : ""}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      ${lista.map((x) => `<div class="card" style="text-align:center;${x.ok ? "" : "opacity:.55"}">
+        <div style="font-size:30px;${x.ok ? "" : "filter:grayscale(1)"}">${x.ic}</div>
+        <b style="font-size:14px">${esc(x.nome)}</b>
+        <div class="pequeno">${esc(x.desc)}</div>
+        ${x.ok ? `<div class="pequeno" style="color:#087f5b;font-weight:700">Conquistada ✓</div>` : x.meta > 1 ? `<div class="progresso" style="margin:6px 0 0"><div style="width:${Math.round((100 * x.atual) / x.meta)}%"></div></div><div class="pequeno">${x.atual}/${x.meta}</div>` : ""}
+      </div>`).join("")}
+    </div>`);
 }
 
 /* ============================================================
@@ -2283,7 +2703,7 @@ function renderCronograma() {
         <div class="corpo">
           <div class="meta" style="margin:0 0 2px"><span class="quando">${b.ini}–${b.fim}</span> · <span>${iconeMateria(b.materia)} ${esc(b.materia)}</span></div>
           <div class="t">${esc(b.texto)}</div>
-          ${podeEstudar && !feito ? `<div class="acoes"><button class="mini roxo" data-cacao="estudar" data-tarefa="${t.id}">🧠 Abrir material</button></div>` : ""}
+          ${!feito ? `<div class="acoes"><button class="mini" data-cacao="foco">⏱️ Focar 25 min</button>${podeEstudar ? `<button class="mini roxo" data-cacao="estudar" data-tarefa="${t.id}">🧠 Abrir material</button>` : ""}</div>` : ""}
         </div></div>`;
     }).join("")}</div>`;
   }
@@ -2302,6 +2722,11 @@ $("#conteudoCrono").addEventListener("click", (ev) => {
   if (b.dataset.cacao === "estudar") {
     const t = estado.tarefas.find((x) => x.id === b.dataset.tarefa);
     if (t) estudarTarefa(t);
+  }
+  if (b.dataset.cacao === "foco") {
+    const chave = b.closest("[data-chave]").dataset.chave;
+    const bloco = montarSemana().flatMap((d) => d.blocos).find((x) => x.chave === chave);
+    abrirFoco(bloco || null);
   }
 });
 

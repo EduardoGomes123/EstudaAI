@@ -98,6 +98,14 @@ Como funciona por trás:
 - O cálculo do "% pronto": material criado (15), resumo lido (15), flashcards sem erro (até 25) e melhor nota no simulado (até 45).
 - Também mostra o bloco de hoje do cronograma que ainda falta.
 
+## Aba "Mais"
+
+- **⏱️ Modo foco:** 25 min de estudo e 5 de pausa, com aviso no fim. Também abre pelo botão "⏱️ Focar 25 min" de cada bloco do cronograma, e ao terminar marca o bloco como feito.
+- **📒 Minhas notas:** notas por matéria (4 bimestres ou 3 trimestres, média 5, 6 ou 7) e "quanto preciso tirar" nos períodos que faltam. **📷 Fotografar o boletim**: a IA lê as notas e o aluno confere antes de salvar (modo `boletim` em `api/ia.js`).
+- **✍️ Corrigir redação:** foto (até 3 páginas) ou texto colado. Nota estilo ENEM (5 competências, 0–1000) ou da escola (0–10), com comentário e dica por competência, pontos fortes, erros de português e um trecho reescrito como exemplo (não reescreve a redação inteira). Mostra se a nota subiu desde a última (modo `redacao`).
+- **🎒 Mochila de amanhã:** checklist com as matérias do dia seguinte (pelo horário do cronograma), as entregas e provas da agenda e o que levar. Depois das 17h, aparece também em "Hoje".
+- **🏅 Conquistas:** 12 medalhas por hábitos (primeira anotação, 10 sessões de foco, gabaritar simulado...). Sem sequência de dias e sem pressão.
+
 ## O que observar no teste com os adolescentes
 
 - Eles conseguem salvar uma prova a partir da foto em menos de 30 segundos?
