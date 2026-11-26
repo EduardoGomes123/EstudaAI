@@ -391,6 +391,49 @@ function realcarLetra(ctx, w, h) {
   ctx.putImageData(im, 0, 0);
 }
 
+// Foto da redação: página inteira + metade de cima e de baixo ampliadas (a IA lê melhor a letra)
+function fotoPagina(arquivo) {
+  return new Promise((ok, erro) => {
+    const url = URL.createObjectURL(arquivo);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const esc0 = Math.min(1, 2800 / Math.max(img.width, img.height));
+      const W = Math.round(img.width * esc0), H = Math.round(img.height * esc0);
+      const base = document.createElement("canvas"); base.width = W; base.height = H;
+      const bctx = base.getContext("2d"); bctx.drawImage(img, 0, 0, W, H);
+      try { realcarLetra(bctx, W, H); } catch (e) {}
+      const corte = (sx, sy, sw, sh, lado, q) => {
+        const e = Math.min(1, lado / Math.max(sw, sh));
+        const c = document.createElement("canvas"); c.width = Math.round(sw * e); c.height = Math.round(sh * e);
+        c.getContext("2d").drawImage(base, sx, sy, sw, sh, 0, 0, c.width, c.height);
+        const u = c.toDataURL("image/jpeg", q); return { mime: "image/jpeg", data: u.split(",")[1], preview: u };
+      };
+      const inteira = corte(0, 0, W, H, 1300, 0.72);
+      const vertical = H >= W;
+      const partes = vertical
+        ? [corte(0, 0, W, Math.round(H * 0.55), 1700, 0.78), corte(0, Math.round(H * 0.45), W, H - Math.round(H * 0.45), 1700, 0.78)]
+        : [corte(0, 0, Math.round(W * 0.55), H, 1700, 0.78), corte(Math.round(W * 0.45), 0, W - Math.round(W * 0.45), H, 1700, 0.78)];
+      ok({ ...inteira, partes, vertical });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); erro(new Error("Não consegui abrir essa foto.")); };
+    img.src = url;
+  });
+}
+function fotosParaLeitura(lista) {
+  const saida = []; let total = 0;
+  lista.forEach((f, i) => {
+    const pg = lista.length > 1 ? `Página ${i + 1}` : "Página";
+    saida.push({ mime: f.mime, data: f.data, rotulo: `${pg} inteira` }); total += f.data.length;
+    (f.partes || []).forEach((p, k) => {
+      if (total + p.data.length > 3800000) return; // limite de envio
+      saida.push({ mime: p.mime, data: p.data, rotulo: `${pg}, ${f.vertical === false ? (k ? "metade da direita" : "metade da esquerda") : (k ? "metade de baixo" : "metade de cima")} ampliada` });
+      total += p.data.length;
+    });
+  });
+  return saida;
+}
+
 /* ---------- chamada da IA ---------- */
 async function chamarIA(corpo) {
   let r;
@@ -2514,7 +2557,7 @@ function abrirRedacao() {
       <textarea id="rdTexto" maxlength="6000" style="min-height:110px" placeholder="Cole aqui se escreveu no computador">${esc(texto)}</textarea>
       <div style="height:12px"></div>
       <button class="botao primario" id="rdIr">✨ Corrigir minha redação</button>
-      ${fotosRedacao.length ? `<p class="pequeno">📷 Primeiro eu leio sua letra e você confere. Dica: foto de cima, com luz, a folha inteira aparecendo.</p>` : ""}
+      ${fotosRedacao.length ? `<p class="pequeno">📷 Primeiro eu leio sua letra e você confere. Dica: foto bem de cima, com luz e sem sombra, só a folha aparecendo. Se a redação for longa, tire uma foto de cada metade da folha.</p>` : `<p class="pequeno">🎤 Outra opção: toque no campo de texto, depois no microfone do teclado, e leia sua redação em voz alta. Só que o ditado corrige a ortografia sozinho, então os erros de português não vão aparecer na correção.</p>`}
       ${paresLetra().length ? `<p class="pequeno">🧠 Já aprendi ${paresLetra().length} ${paresLetra().length === 1 ? "palavra" : "palavras"} da sua letra. <a href="#" id="rdEsquecer">Esquecer</a></p>` : ""}
       <p class="pequeno">A correção é uma ajuda para treinar, não substitui o professor. As fotos não ficam guardadas.</p>`);
     if ($("#rdEsquecer")) $("#rdEsquecer").onclick = (e) => { e.preventDefault(); if (!confirm("Esquecer o que aprendi da sua letra?")) return; estado.letra = { pares: [] }; salvarLocal(); desenhar(...vals()); };
@@ -2526,7 +2569,7 @@ function abrirRedacao() {
       if (camera) inp.setAttribute("capture", "environment"); else inp.removeAttribute("capture");
       inp.onchange = async (ev) => {
         const arqs = [...ev.target.files].slice(0, 3 - fotosRedacao.length); ev.target.value = "";
-        for (const a of arqs) { try { fotosRedacao.push(await reduzirFoto(a, 2000, 0.82, true)); } catch (e) { toast(e.message); } }
+        for (const a of arqs) { try { fotosRedacao.push(await fotoPagina(a)); } catch (e) { toast(e.message); } }
         desenhar(...v);
       };
       inp.click();
@@ -2540,7 +2583,7 @@ function abrirRedacao() {
       // 1) só lê a letra; o aluno confere antes de corrigir
       const parar = carregando("📷 Lendo sua letra…", ["🔍 Decifrando palavra por palavra…", "📝 Montando os parágrafos…", "Quase lá…"]);
       try {
-        const r = await chamarIA({ modo: "transcrever", fotos: fotosRedacao.map((f) => ({ mime: f.mime, data: f.data })), dicas: paresLetra().slice(0, 40) });
+        const r = await chamarIA({ modo: "transcrever", fotos: fotosParaLeitura(fotosRedacao), dicas: paresLetra().slice(0, 40) });
         parar();
         const lido = String((r && r.texto) || "").trim();
         if (lido.length < 80) { toast((r && r.aviso) || "Não consegui ler. Tente uma foto mais de perto, com luz, sem sombra.", 4500); return; }
@@ -3000,7 +3043,7 @@ function abrirConquistas() {
    CRONOGRAMA — o aluno informa os horários e o app monta a semana
    ============================================================ */
 const DIAS_SEM = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
-const VERSAO_APP = "19";
+const VERSAO_APP = "20";
 const CHAVE_DIA = { seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, sab: 6 };
 const BASE_MATERIAS = ["Matemática", "Português", "Ciências", "História", "Geografia", "Inglês"];
 const toMin = (h) => { const [a, b] = String(h || "0:0").split(":").map(Number); return (a || 0) * 60 + (b || 0); };

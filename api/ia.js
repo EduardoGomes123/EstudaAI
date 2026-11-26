@@ -112,7 +112,7 @@ Responda SOMENTE com JSON neste formato:
 {"ano":${ano},"serie":"8º ano","periodos":4,"nome_periodo":"unidade","media":null,"materias":[{"materia":"Matemática","notas":[7.5,8,null,null],"media_anual":null,"final":null}],"aviso":""}`;
 }
 
-function promptTranscrever(dicas) {
+function promptTranscrever(dicas, recortes) {
   const lista = (Array.isArray(dicas) ? dicas : []).slice(0, 40)
     .map((d) => d && typeof d.l === "string" && typeof d.c === "string" ? `"${d.l.slice(0, 30)}" → "${d.c.slice(0, 30)}"` : null).filter(Boolean);
   return `Você é especialista em ler letra à mão de estudantes brasileiros (11 a 18 anos), em letra cursiva ou de forma, muitas vezes apressada.
@@ -126,7 +126,8 @@ Como ler bem:
 - Se houver título, coloque em "titulo" e não repita no texto.
 - Copie EXATAMENTE o que o aluno escreveu, inclusive erros de ortografia, acento, crase e pontuação. NÃO corrija nada: os erros serão avaliados depois.
 - Quando não tiver certeza de uma palavra, escreva seu melhor palpite no texto e coloque essa palavra em "duvidas" (no máximo 15), com um trecho curto em volta.
-- Páginas em várias fotos: siga a ordem das fotos.
+- Páginas em várias fotos: siga a ordem das fotos.${recortes ? `
+- Para cada página você recebe a PÁGINA INTEIRA e depois a METADE DE CIMA e a METADE DE BAIXO ampliadas (as metades se sobrepõem um pouco no meio). Use as metades ampliadas para ler cada palavra e a página inteira para a ordem das linhas. Não repita as linhas da parte sobreposta.` : ""}
 ${lista.length ? `
 Este aluno já corrigiu leituras suas antes. Palavras da letra dele que você leu errado (como leu → o certo): ${lista.join("; ")}. Fique atento a essas palavras e aos mesmos formatos de letra.
 ` : ""}
@@ -275,14 +276,17 @@ function extrairJSON(texto) {
 // (a correção da redação pensa normal: precisa de raciocínio para dar a nota certa)
 const PENSAR_POUCO = new Set(["boletim", "agenda", "horario"]);
 
-async function chamarGemini(chave, modelo, partes, rapido) {
+// Ajustes por modo: "rapido" pensa pouco; "leitura" usa alta resolução e pensa mais (letra à mão)
+async function chamarGemini(chave, modelo, partes, rapido, leitura) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`;
   const r = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json", "x-goog-api-key": chave },
     body: JSON.stringify({
       contents: [{ role: "user", parts: partes }],
-      generationConfig: { responseMimeType: "application/json", temperature: 0.3, ...(rapido ? { thinkingConfig: { thinkingLevel: "low" } } : {}) },
+      generationConfig: leitura
+        ? { responseMimeType: "application/json", mediaResolution: "MEDIA_RESOLUTION_HIGH", ...(leitura === "ajustes" ? { thinkingConfig: { thinkingLevel: "high" } } : {}) }
+        : { responseMimeType: "application/json", temperature: 0.3, ...(rapido ? { thinkingConfig: { thinkingLevel: "low" } } : {}) },
     }),
   });
   const corpo = await r.json().catch(() => ({}));
@@ -341,7 +345,7 @@ module.exports = async (req, res) => {
   }
 
   if (modo === "transcrever") {
-    const lista = Array.isArray(fotos) ? fotos.slice(0, 3) : [];
+    const lista = Array.isArray(fotos) ? fotos.slice(0, 9) : [];
     if (!lista.length) return resposta(400, { erro: "Tire foto da redação." });
     let soma = 0;
     for (const f of lista) {
@@ -350,8 +354,11 @@ module.exports = async (req, res) => {
     }
     if (soma > MAX_BYTES_TOTAL) return resposta(413, { erro: "As fotos ficaram grandes demais. Tente com menos páginas." });
     return responderComIA(chave, [
-      { text: promptTranscrever(dados.dicas) },
-      ...lista.map((f) => ({ inline_data: { mime_type: f.mime, data: f.data } })),
+      { text: promptTranscrever(dados.dicas, lista.some((f) => f.rotulo)) },
+      ...lista.flatMap((f) => [
+        ...(typeof f.rotulo === "string" && f.rotulo ? [{ text: f.rotulo.slice(0, 60) + ":" }] : []),
+        { inline_data: { mime_type: f.mime, data: f.data } },
+      ]),
     ], modo);
   }
 
@@ -420,10 +427,12 @@ async function perguntarIA(chave, partes, modo) {
   for (const modelo of modelos) {
     let r;
     const rapido = PENSAR_POUCO.has(modo);
+    const leitura = modo === "transcrever" ? "ajustes" : null;
     try {
-      r = await chamarGemini(chave, modelo, [...partes, { text: REGRA_TEXTO }], rapido);
-      // se este modelo não aceitar o ajuste de "pensar pouco", tenta de novo sem ele
-      if (rapido && r.status === 400 && /think/i.test(r.corpo?.error?.message || "")) r = await chamarGemini(chave, modelo, [...partes, { text: REGRA_TEXTO }], false);
+      r = await chamarGemini(chave, modelo, [...partes, { text: REGRA_TEXTO }], rapido, leitura);
+      // se este modelo não aceitar algum ajuste, tenta de novo do jeito mais simples
+      if ((rapido || leitura) && r.status === 400 && /think|resolution|media/i.test(r.corpo?.error?.message || "")) r = await chamarGemini(chave, modelo, [...partes, { text: REGRA_TEXTO }], false, leitura ? "simples" : null);
+      if (leitura && r.status === 400 && /resolution|media/i.test(r.corpo?.error?.message || "")) r = await chamarGemini(chave, modelo, [...partes, { text: REGRA_TEXTO }], false, null);
     }
     catch { ultimoErro = "Falha de conexão com a IA."; continue; }
 
