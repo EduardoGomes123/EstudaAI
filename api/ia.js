@@ -112,6 +112,31 @@ Responda SOMENTE com JSON neste formato:
 {"ano":${ano},"serie":"8º ano","periodos":4,"nome_periodo":"unidade","media":null,"materias":[{"materia":"Matemática","notas":[7.5,8,null,null],"media_anual":null,"final":null}],"aviso":""}`;
 }
 
+function promptTranscrever(dicas) {
+  const lista = (Array.isArray(dicas) ? dicas : []).slice(0, 40)
+    .map((d) => d && typeof d.l === "string" && typeof d.c === "string" ? `"${d.l.slice(0, 30)}" → "${d.c.slice(0, 30)}"` : null).filter(Boolean);
+  return `Você é especialista em ler letra à mão de estudantes brasileiros (11 a 18 anos), em letra cursiva ou de forma, muitas vezes apressada.
+As fotos são as páginas de uma redação escrita à mão, em português. Transcreva o texto.
+
+Como ler bem:
+- Leia linha por linha, com calma. Use o sentido da frase e do parágrafo para decifrar letras parecidas (a/o, n/u, m/n/rn, e/c, r/v, l/t/f, i/e, s/r, g/q, cl/d) e palavras incompletas.
+- Junte as linhas de um mesmo parágrafo. Palavra dividida com hífen no fim da linha: junte.
+- Parágrafo novo (recuo ou linha nova começando com espaço): separe com uma linha em branco.
+- Ignore palavras riscadas, números das linhas, margens e o cabeçalho da folha (nome, turma, data, escola).
+- Se houver título, coloque em "titulo" e não repita no texto.
+- Copie EXATAMENTE o que o aluno escreveu, inclusive erros de ortografia, acento, crase e pontuação. NÃO corrija nada: os erros serão avaliados depois.
+- Quando não tiver certeza de uma palavra, escreva seu melhor palpite no texto e coloque essa palavra em "duvidas" (no máximo 15), com um trecho curto em volta.
+- Páginas em várias fotos: siga a ordem das fotos.
+${lista.length ? `
+Este aluno já corrigiu leituras suas antes. Palavras da letra dele que você leu errado (como leu → o certo): ${lista.join("; ")}. Fique atento a essas palavras e aos mesmos formatos de letra.
+` : ""}
+Se não for uma redação ou estiver ilegível, deixe "texto" vazio e explique em "aviso".
+
+Responda SOMENTE com JSON:
+{"titulo":"","texto":"","duvidas":[{"palavra":"","trecho":""}],"legibilidade":"boa","aviso":""}
+("legibilidade": "boa", "media" ou "ruim")`;
+}
+
 function promptRedacao({ tema, tipo, texto }) {
   const enem = tipo !== "escola";
   return `Você é um corretor de redação experiente e gentil, que ajuda estudantes brasileiros (11 a 18 anos) a escrever melhor.
@@ -121,15 +146,23 @@ ${tema ? `Tema proposto: ${tema}` : "O tema não foi informado: deduza pelo text
 ${enem
   ? `Corrija como no ENEM (texto dissertativo-argumentativo), dando de 0 a 200 em cada competência, só em múltiplos de 40:
 C1 Domínio da norma padrão da língua escrita; C2 Compreender a proposta e aplicar conceitos de várias áreas, dentro do tipo dissertativo-argumentativo; C3 Selecionar, relacionar, organizar e interpretar informações e argumentos; C4 Mecanismos linguísticos de coesão; C5 Proposta de intervenção (agente, ação, meio/modo, finalidade e detalhamento) respeitando os direitos humanos.
-"nota_total" é a soma (0 a 1000).`
+"nota_total" é a soma (0 a 1000).
+
+Use a grade oficial do INEP para cada competência:
+- C1: 200 = no máximo 1 desvio leve e excelente estrutura sintática; 160 = poucos desvios; 120 = alguns desvios e estrutura regular; 80 = muitos desvios; 40 = desvios graves e frequentes; 0 = desconhecimento da norma. Conte os desvios de verdade (ortografia, acentuação, crase, concordância, regência, pontuação) antes de dar a nota.
+- C2: 200 = tema completo, repertório sociocultural legitimado, pertinente e produtivo, e estrutura dissertativa excelente (introdução, desenvolvimento e conclusão); 160 = repertório pertinente mas pouco produtivo; 120 = repertório baseado só nos textos motivadores ou abordagem previsível; 80 = tangencia o tema ou estrutura falha; 40 = tangência + traços de outro tipo textual; 0 = fuga ao tema ou não é dissertativo-argumentativo.
+- C3: 200 = projeto de texto estratégico, argumentos desenvolvidos e autorais; 160 = projeto claro com poucas falhas de desenvolvimento; 120 = argumentos previsíveis ou pouco desenvolvidos; 80 = desorganizado ou contraditório; 40 = pouco relacionado ao tema; 0 = sem defesa de ponto de vista.
+- C4: 200 = conectivos variados entre e dentro dos parágrafos, quase sem repetição ou inadequação; 160 = poucas inadequações; 120 = coesão regular; 80 = insuficiente; 40 = precária; 0 = ausente.
+- C5: 200 = proposta completa com os 5 elementos (agente, ação, meio/modo, finalidade, detalhamento) ligada ao tema; 160 = 4 elementos; 120 = 3; 80 = 2; 40 = 1 ou proposta vaga; 0 = sem proposta ou desrespeita os direitos humanos.
+Antes de dar cada nota, encontre no texto a evidência. Não dê notas medianas por padrão: use toda a escala quando o texto justificar. Seja consistente: o mesmo texto deve receber a mesma nota.`
   : `Corrija como uma redação escolar do ensino fundamental, dando de 0 a 2 em cada critério (pode usar 0,5):
 C1 Ortografia e gramática; C2 Seguiu o tema e o tipo de texto; C3 Organização (introdução, desenvolvimento, conclusão e parágrafos); C4 Ligação entre as ideias (coesão); C5 Argumentos, exemplos e criatividade.
 "nota_total" é a soma (0 a 10).`}
 
 Regras:
 - Seja honesto, mas encorajador. Linguagem simples, falando com o aluno ("você").
-- Em cada competência: "comentario" (o que aconteceu, 1–2 frases, citando um trecho curto da redação entre aspas quando ajudar) e "como_melhorar" (uma ação concreta).
-- "erros": até 6 erros de português reais que aparecem no texto, cada um com "trecho" (como está) e "correcao".
+- Em cada competência: "comentario" (o que aconteceu, 1–2 frases, SEMPRE citando um trecho curto da redação entre aspas como prova) e "como_melhorar" (uma ação concreta, ligada a esse texto, não um conselho genérico). Na C5, diga quais dos 5 elementos apareceram e quais faltaram.
+- "erros": até 8 erros de português reais que aparecem no texto, cada um com "trecho" (copiado exatamente como está) e "correcao". Confira cada um: não aponte como erro algo que está certo.
 - "reescrita": pegue UM trecho fraco (até 2 frases) e mostre como ficaria melhor. NÃO reescreva a redação inteira.
 - Se o texto estiver ilegível, for muito curto (menos de 5 linhas) ou não for uma redação, deixe "competencias" vazio e explique em "aviso".
 - Nunca invente trechos que não estão no texto.
@@ -239,7 +272,8 @@ function extrairJSON(texto) {
 }
 
 // Modos em que a IA não precisa "pensar" muito: responde bem mais rápido
-const PENSAR_POUCO = new Set(["redacao", "boletim", "agenda", "horario"]);
+// (a correção da redação pensa normal: precisa de raciocínio para dar a nota certa)
+const PENSAR_POUCO = new Set(["boletim", "agenda", "horario"]);
 
 async function chamarGemini(chave, modelo, partes, rapido) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`;
@@ -265,7 +299,7 @@ module.exports = async (req, res) => {
   if (typeof dados === "string") { try { dados = JSON.parse(dados); } catch { return resposta(400, { erro: "Pedido inválido." }); } }
 
   const { modo, fotos, hoje, materia, assunto } = dados || {};
-  if (!["agenda", "estudo", "horario", "mapa", "banco", "enem", "duvida", "redacao", "boletim"].includes(modo)) return resposta(400, { erro: "Modo inválido." });
+  if (!["agenda", "estudo", "horario", "mapa", "banco", "enem", "duvida", "redacao", "boletim", "transcrever"].includes(modo)) return resposta(400, { erro: "Modo inválido." });
 
   // Questões oficiais do ENEM funcionam mesmo sem a chave (só ficam sem explicação da IA)
   if (modo === "enem") {
@@ -304,6 +338,21 @@ module.exports = async (req, res) => {
     if (!f || typeof f.data !== "string" || !/^image\/(jpeg|png|webp)$/.test(f.mime || "")) return resposta(400, { erro: "Tire uma foto do boletim." });
     if (f.data.length > MAX_BYTES_TOTAL) return resposta(413, { erro: "A foto ficou grande demais." });
     return responderComIA(chave, [{ text: promptBoletim() }, { inline_data: { mime_type: f.mime, data: f.data } }], modo);
+  }
+
+  if (modo === "transcrever") {
+    const lista = Array.isArray(fotos) ? fotos.slice(0, 3) : [];
+    if (!lista.length) return resposta(400, { erro: "Tire foto da redação." });
+    let soma = 0;
+    for (const f of lista) {
+      if (!f || typeof f.data !== "string" || !/^image\/(jpeg|png|webp)$/.test(f.mime || "")) return resposta(400, { erro: "Formato de foto inválido." });
+      soma += f.data.length;
+    }
+    if (soma > MAX_BYTES_TOTAL) return resposta(413, { erro: "As fotos ficaram grandes demais. Tente com menos páginas." });
+    return responderComIA(chave, [
+      { text: promptTranscrever(dados.dicas) },
+      ...lista.map((f) => ({ inline_data: { mime_type: f.mime, data: f.data } })),
+    ], modo);
   }
 
   if (modo === "redacao") {

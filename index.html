@@ -352,7 +352,7 @@ function carregando(msg, etapas) {
 }
 
 /* ---------- fotos: reduz antes de enviar ---------- */
-function reduzirFoto(arquivo, lado = 1400, qualidade = 0.72) {
+function reduzirFoto(arquivo, lado = 1400, qualidade = 0.72, realce = false) {
   return new Promise((ok, erro) => {
     const url = URL.createObjectURL(arquivo);
     const img = new Image();
@@ -360,7 +360,9 @@ function reduzirFoto(arquivo, lado = 1400, qualidade = 0.72) {
       const esc = Math.min(1, lado / Math.max(img.width, img.height));
       const c = document.createElement("canvas");
       c.width = Math.round(img.width * esc); c.height = Math.round(img.height * esc);
-      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      const ctx = c.getContext("2d");
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      if (realce) try { realcarLetra(ctx, c.width, c.height); } catch (e) {}
       URL.revokeObjectURL(url);
       const dataUrl = c.toDataURL("image/jpeg", qualidade);
       ok({ mime: "image/jpeg", data: dataUrl.split(",")[1], preview: dataUrl });
@@ -368,6 +370,25 @@ function reduzirFoto(arquivo, lado = 1400, qualidade = 0.72) {
     img.onerror = () => { URL.revokeObjectURL(url); erro(new Error("Não consegui abrir essa foto.")); };
     img.src = url;
   });
+}
+
+// Deixa a letra à mão mais legível: tons de cinza + contraste automático (tira a sombra do papel)
+function realcarLetra(ctx, w, h) {
+  const im = ctx.getImageData(0, 0, w, h), d = im.data, n = w * h;
+  const cinza = new Uint8ClampedArray(n), hist = new Uint32Array(256);
+  for (let i = 0, j = 0; i < n; i++, j += 4) { const g = (d[j] * 0.3 + d[j + 1] * 0.59 + d[j + 2] * 0.11) | 0; cinza[i] = g; hist[g]++; }
+  let acc = 0, lo = 0, hi = 255;
+  for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= n * 0.002) { lo = v; break; } }
+  acc = 0;
+  for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc >= n * 0.08) { hi = v; break; } }
+  if (hi - lo < 20) { lo = 0; hi = 255; }
+  const k = 255 / (hi - lo);
+  for (let i = 0, j = 0; i < n; i++, j += 4) {
+    let v = (cinza[i] - lo) * k; v = v < 0 ? 0 : v > 255 ? 255 : v;
+    v = 255 * Math.pow(v / 255, 1.35); // escurece o traço do lápis/caneta
+    d[j] = d[j + 1] = d[j + 2] = v;
+  }
+  ctx.putImageData(im, 0, 0);
 }
 
 /* ---------- chamada da IA ---------- */
@@ -2493,7 +2514,10 @@ function abrirRedacao() {
       <textarea id="rdTexto" maxlength="6000" style="min-height:110px" placeholder="Cole aqui se escreveu no computador">${esc(texto)}</textarea>
       <div style="height:12px"></div>
       <button class="botao primario" id="rdIr">✨ Corrigir minha redação</button>
+      ${fotosRedacao.length ? `<p class="pequeno">📷 Primeiro eu leio sua letra e você confere. Dica: foto de cima, com luz, a folha inteira aparecendo.</p>` : ""}
+      ${paresLetra().length ? `<p class="pequeno">🧠 Já aprendi ${paresLetra().length} ${paresLetra().length === 1 ? "palavra" : "palavras"} da sua letra. <a href="#" id="rdEsquecer">Esquecer</a></p>` : ""}
       <p class="pequeno">A correção é uma ajuda para treinar, não substitui o professor. As fotos não ficam guardadas.</p>`);
+    if ($("#rdEsquecer")) $("#rdEsquecer").onclick = (e) => { e.preventDefault(); if (!confirm("Esquecer o que aprendi da sua letra?")) return; estado.letra = { pares: [] }; salvarLocal(); desenhar(...vals()); };
     const vals = () => [$("#rdTema").value, $("#rdTexto").value];
     document.querySelectorAll("[data-tipo]").forEach((b) => b.onclick = () => { tipo = b.dataset.tipo; estado.redacao = { ...(estado.redacao || {}), tipo }; salvarLocal(); desenhar(...vals()); });
     document.querySelectorAll("[data-rm]").forEach((b) => b.onclick = () => { const v = vals(); fotosRedacao.splice(+b.dataset.rm, 1); desenhar(...v); });
@@ -2502,7 +2526,7 @@ function abrirRedacao() {
       if (camera) inp.setAttribute("capture", "environment"); else inp.removeAttribute("capture");
       inp.onchange = async (ev) => {
         const arqs = [...ev.target.files].slice(0, 3 - fotosRedacao.length); ev.target.value = "";
-        for (const a of arqs) { try { fotosRedacao.push(await reduzirFoto(a, 1500, 0.72)); } catch (e) { toast(e.message); } }
+        for (const a of arqs) { try { fotosRedacao.push(await reduzirFoto(a, 2000, 0.82, true)); } catch (e) { toast(e.message); } }
         desenhar(...v);
       };
       inp.click();
@@ -2512,15 +2536,15 @@ function abrirRedacao() {
     $("#rdIr").onclick = async () => {
       const [tema, texto] = vals();
       if (!fotosRedacao.length && texto.trim().length < 200) { toast("Tire foto da redação ou cole o texto completo."); return; }
-      const parar = carregando(fotosRedacao.length ? "📷 Lendo sua letra…" : "📖 Lendo sua redação…",
-        tipo === "escola" ? ["✏️ Conferindo ortografia…", "🧭 Vendo se seguiu o tema…", "🧱 Olhando os parágrafos…", "🔗 Conferindo a ligação das ideias…", "✨ Preparando dicas…", "Quase lá…"]
-          : ["✏️ Competência 1: norma padrão…", "🧭 Competência 2: tema e repertório…", "🧱 Competência 3: argumentos…", "🔗 Competência 4: coesão…", "🛠️ Competência 5: proposta de intervenção…", "✨ Separando as dicas…", "Quase lá…"]);
+      if (!fotosRedacao.length) { corrigirTexto(tipo, tema.trim(), texto.trim()); return; }
+      // 1) só lê a letra; o aluno confere antes de corrigir
+      const parar = carregando("📷 Lendo sua letra…", ["🔍 Decifrando palavra por palavra…", "📝 Montando os parágrafos…", "Quase lá…"]);
       try {
-        const r = await chamarIA({ modo: "redacao", tipo, tema: tema.trim(), texto: texto.trim(), fotos: fotosRedacao.map((f) => ({ mime: f.mime, data: f.data })) });
+        const r = await chamarIA({ modo: "transcrever", fotos: fotosRedacao.map((f) => ({ mime: f.mime, data: f.data })), dicas: paresLetra().slice(0, 40) });
         parar();
-        const c = validarRedacao(r, tipo);
-        if (!c) { toast(r.aviso || "Não consegui ler a redação. Tente fotos mais nítidas, com boa luz.", 4500); return; }
-        guardarRedacao(c); mostrarCorrecao(c);
+        const lido = String((r && r.texto) || "").trim();
+        if (lido.length < 80) { toast((r && r.aviso) || "Não consegui ler. Tente uma foto mais de perto, com luz, sem sombra.", 4500); return; }
+        conferirLeitura({ tipo, tema: tema.trim() || String(r.titulo || "").trim(), lido, duvidas: Array.isArray(r.duvidas) ? r.duvidas : [], legib: r.legibilidade, voltar: () => desenhar(tema, "") });
       } catch (e) {
         parar();
         erroIA(e, () => { const c = validarRedacao(DEMO_REDACAO(), "enem"); mostrarCorrecao(c); });
@@ -2529,6 +2553,100 @@ function abrirRedacao() {
   };
   desenhar();
 }
+// 2) corrige a partir do texto (digitado ou conferido pelo aluno)
+async function corrigirTexto(tipo, tema, texto) {
+  const parar = carregando("📖 Lendo sua redação…",
+    tipo === "escola" ? ["✏️ Conferindo ortografia…", "🧭 Vendo se seguiu o tema…", "🧱 Olhando os parágrafos…", "🔗 Conferindo a ligação das ideias…", "✨ Preparando dicas…", "Quase lá…"]
+      : ["✏️ Competência 1: norma padrão…", "🧭 Competência 2: tema e repertório…", "🧱 Competência 3: argumentos…", "🔗 Competência 4: coesão…", "🛠️ Competência 5: proposta de intervenção…", "✨ Separando as dicas…", "Quase lá…"]);
+  try {
+    const r = await chamarIA({ modo: "redacao", tipo, tema, texto });
+    parar();
+    const c = validarRedacao(r, tipo);
+    if (!c) { toast(r.aviso || "Não consegui corrigir essa redação. Confira se o texto está completo.", 4500); return; }
+    guardarRedacao(c); mostrarCorrecao(c);
+  } catch (e) {
+    parar();
+    erroIA(e, () => { const c = validarRedacao(DEMO_REDACAO(), "enem"); mostrarCorrecao(c); });
+  }
+}
+
+/* ---------- ✍️ conferir a leitura da letra e aprender com as correções ---------- */
+function paresLetra() {
+  const p = (estado.letra && Array.isArray(estado.letra.pares)) ? estado.letra.pares : [];
+  return [...p].sort((a, b) => (b.n || 1) - (a.n || 1));
+}
+const semAcento = (w) => w.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+function palavrasTexto(t) { return (String(t).match(/[A-Za-zÀ-ÿ]+(?:[-'][A-Za-zÀ-ÿ]+)*/g) || []); }
+function parecidas(a, b) {
+  a = semAcento(a); b = semAcento(b);
+  if (a === b) return true; // só acento: também é leitura
+  const m = a.length, n = b.length;
+  if (Math.abs(m - n) > 3) return false;
+  const d = Array.from({ length: m + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[m][n] <= Math.max(2, Math.ceil(Math.max(m, n) * 0.5));
+}
+// Compara o que a IA leu com o que o aluno corrigiu e guarda as trocas de palavra
+function aprenderLetra(lido, certo) {
+  const A = palavrasTexto(lido).slice(0, 900), B = palavrasTexto(certo).slice(0, 900);
+  const m = A.length, n = B.length;
+  if (!m || !n) return 0;
+  const L = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1));
+  for (let i = m - 1; i >= 0; i--) for (let j = n - 1; j >= 0; j--) L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const trocas = []; let i = 0, j = 0, ga = [], gb = [];
+  const fecha = () => { if (ga.length && ga.length === gb.length && ga.length <= 3) ga.forEach((w, k) => { if (w.length >= 2 && parecidas(w, gb[k])) trocas.push([w, gb[k]]); }); ga = []; gb = []; };
+  while (i < m && j < n) {
+    if (A[i] === B[j]) { fecha(); i++; j++; }
+    else if (L[i + 1][j] >= L[i][j + 1]) ga.push(A[i++]);
+    else gb.push(B[j++]);
+  }
+  while (i < m) ga.push(A[i++]); while (j < n) gb.push(B[j++]); fecha();
+  if (!trocas.length) return 0;
+  estado.letra = estado.letra || { pares: [] };
+  const pares = estado.letra.pares = estado.letra.pares || [];
+  for (const [l, c] of trocas) {
+    const x = pares.find((p) => p.l === l && p.c === c);
+    if (x) x.n = (x.n || 1) + 1; else pares.push({ l, c, n: 1 });
+  }
+  estado.letra.pares = paresLetra().slice(0, 60);
+  salvarLocal();
+  return trocas.length;
+}
+function conferirLeitura({ tipo, tema, lido, duvidas, legib, voltar }) {
+  const ds = [...new Set(duvidas.map((d) => String((d && d.palavra) || "").trim()).filter((w) => w && lido.includes(w)))].slice(0, 15);
+  abrirModal(`
+    <div class="topo"><b>Confira o que eu li ✍️</b><button class="fechar" data-fechar>✕</button></div>
+    <p class="pequeno" style="margin-top:0">Corrija só as palavras que eu <b>li errado</b>. Não conserte seus erros de português, senão a correção não mostra eles. Eu aprendo com o que você corrigir para ler melhor sua letra da próxima vez 🧠</p>
+    ${legib === "ruim" ? `<p class="pequeno" style="color:#b35c00">⚠️ Tive dificuldade com essa foto. Se tiver muita coisa errada, tente outra com mais luz e de mais perto.</p>` : ""}
+    ${ds.length ? `<div class="pequeno" style="margin-top:6px"><b>🤔 Não tive certeza (toque para achar):</b></div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${ds.map((w) => `<button class="mini" data-acha="${esc(w)}">${esc(w)}</button>`).join("")}</div>` : ""}
+    <details style="margin-top:10px"><summary class="pequeno" style="cursor:pointer">👀 Ver a foto para comparar</summary>
+      ${fotosRedacao.map((f) => `<img src="${f.preview}" style="width:100%;border-radius:10px;margin-top:6px" alt="Foto da redação">`).join("")}</details>
+    <label class="campo">Texto da redação</label>
+    <textarea id="lgTexto" maxlength="6000" style="min-height:320px;font-size:16px;line-height:1.5">${esc(lido)}</textarea>
+    <div style="height:12px"></div>
+    <button class="botao primario" id="lgOk">✅ Está certo, corrigir</button>
+    <div style="height:8px"></div>
+    <button class="botao secundario" id="lgVoltar">📷 Tirar outra foto</button>`);
+  const ta = $("#lgTexto");
+  document.querySelectorAll("[data-acha]").forEach((b) => b.onclick = () => {
+    const w = b.dataset.acha, k = ta.value.indexOf(w);
+    if (k < 0) { toast("Essa palavra já foi trocada 👍"); return; }
+    ta.focus(); ta.setSelectionRange(k, k + w.length);
+    const antes = ta.value.slice(0, k).split("\n").length; ta.scrollTop = Math.max(0, (antes - 3) * 24);
+  });
+  $("#lgVoltar").onclick = () => { fotosRedacao = []; voltar(); };
+  $("#lgOk").onclick = () => {
+    const texto = ta.value.trim();
+    if (texto.length < 200) { toast("O texto ficou curto demais para corrigir."); return; }
+    const n = aprenderLetra(lido, texto);
+    if (n) toast(`🧠 Aprendi ${n} ${n === 1 ? "palavra" : "palavras"} da sua letra!`, 2500);
+    fotosRedacao = [];
+    corrigirTexto(tipo, tema, texto);
+  };
+}
+
 function validarRedacao(r, tipo) {
   r = limparTudo(r || {});
   const enem = (r.escala || tipo) !== "escola";
@@ -2882,7 +3000,7 @@ function abrirConquistas() {
    CRONOGRAMA — o aluno informa os horários e o app monta a semana
    ============================================================ */
 const DIAS_SEM = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
-const VERSAO_APP = "18";
+const VERSAO_APP = "19";
 const CHAVE_DIA = { seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, sab: 6 };
 const BASE_MATERIAS = ["Matemática", "Português", "Ciências", "História", "Geografia", "Inglês"];
 const toMin = (h) => { const [a, b] = String(h || "0:0").split(":").map(Number); return (a || 0) * 60 + (b || 0); };
