@@ -346,8 +346,11 @@ function carregando(msg, etapas) {
   const el = document.createElement("div"); el.className = "carregando";
   el.innerHTML = `<div class="spinner"></div><b style="font-size:18px" id="carMsg">${esc(msg)}</b><div class="pequeno" id="carSub">Isso leva uns segundinhos…</div>`;
   document.body.appendChild(el);
-  let i = 0;
-  const t = etapas && etapas.length ? setInterval(() => { if (i < etapas.length) { const b = el.querySelector("#carMsg"); if (b) b.textContent = etapas[i++]; } }, 4000) : null;
+  let i = 0; const ini = Date.now();
+  const t = etapas && etapas.length ? setInterval(() => {
+    if (i < etapas.length && (Date.now() - ini) / 1000 >= (i + 1) * 4) { const b = el.querySelector("#carMsg"); if (b) b.textContent = etapas[i++]; }
+    const sub = el.querySelector("#carSub"); if (sub) sub.textContent = `${Math.round((Date.now() - ini) / 1000)} s`;
+  }, 1000) : null;
   return () => { if (t) clearInterval(t); el.remove(); };
 }
 
@@ -424,8 +427,8 @@ function fotosParaLeitura(lista) {
   const saida = []; let total = 0;
   lista.forEach((f, i) => {
     const pg = lista.length > 1 ? `Página ${i + 1}` : "Página";
-    saida.push({ mime: f.mime, data: f.data, rotulo: `${pg} inteira` }); total += f.data.length;
-    (f.partes || []).forEach((p, k) => {
+    if (!f.partes || !f.partes.length) { saida.push({ mime: f.mime, data: f.data, rotulo: pg }); total += f.data.length; return; }
+    f.partes.forEach((p, k) => {
       if (total + p.data.length > 3800000) return; // limite de envio
       saida.push({ mime: p.mime, data: p.data, rotulo: `${pg}, ${f.vertical === false ? (k ? "metade da direita" : "metade da esquerda") : (k ? "metade de baixo" : "metade de cima")} ampliada` });
       total += p.data.length;
@@ -3043,7 +3046,7 @@ function abrirConquistas() {
    CRONOGRAMA — o aluno informa os horários e o app monta a semana
    ============================================================ */
 const DIAS_SEM = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
-const VERSAO_APP = "20";
+const VERSAO_APP = "21";
 const CHAVE_DIA = { seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, sab: 6 };
 const BASE_MATERIAS = ["Matemática", "Português", "Ciências", "História", "Geografia", "Inglês"];
 const toMin = (h) => { const [a, b] = String(h || "0:0").split(":").map(Number); return (a || 0) * 60 + (b || 0); };

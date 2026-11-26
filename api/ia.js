@@ -127,7 +127,7 @@ Como ler bem:
 - Copie EXATAMENTE o que o aluno escreveu, inclusive erros de ortografia, acento, crase e pontuação. NÃO corrija nada: os erros serão avaliados depois.
 - Quando não tiver certeza de uma palavra, escreva seu melhor palpite no texto e coloque essa palavra em "duvidas" (no máximo 15), com um trecho curto em volta.
 - Páginas em várias fotos: siga a ordem das fotos.${recortes ? `
-- Para cada página você recebe a PÁGINA INTEIRA e depois a METADE DE CIMA e a METADE DE BAIXO ampliadas (as metades se sobrepõem um pouco no meio). Use as metades ampliadas para ler cada palavra e a página inteira para a ordem das linhas. Não repita as linhas da parte sobreposta.` : ""}
+- Cada página vem em duas partes ampliadas: a METADE DE CIMA e a METADE DE BAIXO (ou esquerda e direita), que se sobrepõem um pouco no meio. Leia a de cima e continue na de baixo, sem repetir as linhas que aparecem nas duas.` : ""}
 ${lista.length ? `
 Este aluno já corrigiu leituras suas antes. Palavras da letra dele que você leu errado (como leu → o certo): ${lista.join("; ")}. Fique atento a essas palavras e aos mesmos formatos de letra.
 ` : ""}
@@ -285,7 +285,7 @@ async function chamarGemini(chave, modelo, partes, rapido, leitura) {
     body: JSON.stringify({
       contents: [{ role: "user", parts: partes }],
       generationConfig: leitura
-        ? { responseMimeType: "application/json", mediaResolution: "MEDIA_RESOLUTION_HIGH", ...(leitura === "ajustes" ? { thinkingConfig: { thinkingLevel: "high" } } : {}) }
+        ? { responseMimeType: "application/json", mediaResolution: "MEDIA_RESOLUTION_HIGH", ...(leitura === "ajustes" ? { thinkingConfig: { thinkingLevel: "low" } } : {}) }
         : { responseMimeType: "application/json", temperature: 0.3, ...(rapido ? { thinkingConfig: { thinkingLevel: "low" } } : {}) },
     }),
   });
