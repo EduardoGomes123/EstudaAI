@@ -178,6 +178,10 @@
       <p>Fotografe as páginas do caderno ou do livro. Eu crio resumo, flashcards e um simulado pra você treinar.</p>
       <button class="botao" id="btnNovoEstudo">📷 Fotografar o caderno</button>
     </div>
+    <button class="card" id="btnDuvida" style="width:100%;margin-top:12px;text-align:left;font-weight:700;display:flex;gap:12px;align-items:center">
+      <span style="font-size:30px">🙋</span>
+      <span>Tira-dúvida<br><span class="pequeno" style="font-weight:600">Travou num exercício? Foto e eu explico passo a passo</span></span>
+    </button>
     <div class="linha" style="margin-top:12px">
       <button class="card" id="btnEnem" style="text-align:left;font-weight:700">🎯 ENEM<br><span class="pequeno" style="font-weight:600">questões reais e parecidas</span></button>
       <button class="card" id="btnOlimp" style="text-align:left;font-weight:700">🏅 Olimpíadas<br><span class="pequeno" style="font-weight:600">OBMEP, OBM, Canguru…</span></button>
@@ -198,6 +202,7 @@
 <input type="file" id="arquivoEstudo" accept="image/*" multiple class="oculto">
 <input type="file" id="arquivoEstudoCamera" accept="image/*" capture="environment" class="oculto">
 <input type="file" id="arquivoHorario" accept="image/*" class="oculto">
+<input type="file" id="arquivoDuvida" accept="image/*" class="oculto">
 
 <div id="camadaModal"></div>
 
@@ -468,7 +473,7 @@ function cardTarefa(t) {
       </div>
       ${t.detalhes ? `<div class="det">${esc(t.detalhes)}</div>` : ""}
       ${t.feito ? "" : `<div class="acoes">
-        ${podeEstudar ? `<button class="mini roxo" data-acao="estudar">${temMaterial ? "🧠 Revisar" : "🧠 Estudar pra isso"}</button>` : ""}
+        ${podeEstudar ? `<button class="mini roxo" data-acao="estudar">${temMaterial ? (pendenciasRevisao(materialDaTarefa(t)) ? `🔁 Revisar (${pendenciasRevisao(materialDaTarefa(t))})` : "🧠 Revisar") : "🧠 Estudar pra isso"}</button>` : ""}
         ${t.data ? `<button class="mini" data-acao="lembrete">⏰ Lembrete</button>` : ""}
         ${estado.turma && estado.turma.segredo && !t.origem ? `<button class="mini" data-acao="publicar">📤 Turma</button>` : ""}
         <button class="mini" data-acao="editar">✏️</button>
@@ -652,9 +657,10 @@ function renderMateriais() {
     const lista = [...estado.materiais].sort((a, b) => b.criado - a.criado);
     html = `<h3>Seus materiais</h3><div class="lista">${lista.map((m) => {
       const t = estado.tarefas.find((x) => x.id === m.tarefaId);
-      const sub = [m.materia, t && t.data ? `${TIPOS[t.tipo]} ${textoQuando(t.data).toLowerCase()}` : null, m.melhorNota != null ? `melhor nota: ${m.melhorNota}%` : null].filter(Boolean).join(" · ");
+      const rev = pendenciasRevisao(m);
+      const sub = [m.deTurma ? "👥 Turma" : null, m.materia, t && t.data ? `${TIPOS[t.tipo]} ${textoQuando(t.data).toLowerCase()}` : null, m.melhorNota != null ? `melhor nota: ${m.melhorNota}%` : null, rev ? `🔁 ${rev} para revisar` : null].filter(Boolean).join(" · ");
       return `<button class="card material" data-mat="${m.id}" style="text-align:left;width:100%">
-        <div class="icone">${m.melhorNota >= 80 ? "🏆" : m.banco === "enem" ? "🎯" : m.banco ? "🏅" : iconeMateria(m.materia)}</div>
+        <div class="icone">${m.melhorNota >= 80 ? "🏆" : m.banco === "enem" ? "🎯" : m.banco === "duvida" ? "🙋" : m.banco ? "🏅" : iconeMateria(m.materia)}</div>
         <div class="corpo"><div class="t">${esc(m.titulo)}</div><div class="pequeno">${esc(sub)}</div></div>
         <div style="color:var(--suave)">›</div></button>`;
     }).join("")}</div>`;
@@ -671,6 +677,7 @@ $("#listaMateriais").addEventListener("click", (ev) => {
 
 $("#btnNovoEstudo").onclick = () => novoEstudo(null);
 $("#btnEnem").onclick = () => abrirBanco("enem");
+$("#btnDuvida").onclick = () => abrirDuvida();
 $("#btnOlimp").onclick = () => abrirBanco("olimpiada");
 
 let fotosEstudo = [];
@@ -760,6 +767,13 @@ function abrirMaterial(id, aba = "resumo") {
   abrirModal(`
     <div class="topo"><b style="flex:1;margin-right:10px">${esc(m.titulo)}</b><button class="fechar" data-fechar>✕</button></div>
     <div class="pequeno">${esc([m.materia, t && t.data ? `${TIPOS[t.tipo]} ${textoQuando(t.data).toLowerCase()}` : ""].filter(Boolean).join(" · "))}</div>
+    ${pendenciasRevisao(m) ? `<div class="aviso" style="display:flex;align-items:center;gap:8px;justify-content:space-between">
+      <span>🔁 ${m.erros && m.erros.length ? `${m.erros.length} ${m.erros.length === 1 ? "cartão" : "cartões"}` : ""}${m.erros && m.erros.length && m.quizErros && m.quizErros.length ? " e " : ""}${m.quizErros && m.quizErros.length ? `${m.quizErros.length} ${m.quizErros.length === 1 ? "questão" : "questões"}` : ""} para revisar</span>
+      <button class="mini roxo" id="mRevisar">Revisar agora</button></div>` : ""}
+    ${estado.turma && estado.turma.segredo && !m.deTurma ? (m.origem
+      ? `<div class="pequeno" style="margin-top:6px">👥 Enviado para a turma ${esc(estado.turma.nome)}</div>`
+      : `<button class="mini roxo" id="mTurma" style="margin-top:8px">📤 Enviar para a turma ${esc(estado.turma.nome)}</button>`) : ""}
+    ${m.deTurma ? `<div class="pequeno" style="margin-top:6px">👥 Material da turma${estado.turma ? " " + esc(estado.turma.nome) : ""}</div>` : ""}
     <div class="abas">
       <button data-aba="resumo">${m.banco ? "💡 Dicas" : "📄 Resumo"}</button>
       ${m.banco ? "" : `<button data-aba="mapa">🗺️ Mapa</button>`}
@@ -769,9 +783,18 @@ function abrirMaterial(id, aba = "resumo") {
     <div id="conteudoAba"></div>
     <button class="botao fantasma" id="mExcluir" style="margin-top:18px;font-size:14px">Apagar este material</button>`);
   document.querySelectorAll("[data-aba]").forEach((b) => b.onclick = () => mostrarAba(m, b.dataset.aba));
+  if ($("#mRevisar")) $("#mRevisar").onclick = () => {
+    if (m.erros && m.erros.length) { document.querySelectorAll("[data-aba]").forEach((b) => b.classList.toggle("ativo", b.dataset.aba === "flash")); rodarFlashcards(m, $("#conteudoAba"), [...m.erros]); }
+    else mostrarAba(m, "quiz");
+  };
+  if ($("#mTurma")) $("#mTurma").onclick = async () => { if (await publicarMaterialNaTurma(m)) abrirMaterial(m.id); };
   $("#mExcluir").onclick = () => {
-    if (!confirm("Apagar este material?")) return;
-    estado.materiais = estado.materiais.filter((x) => x.id !== m.id); salvar(); fecharModal(); renderMateriais();
+    const prof = m.origem && !m.deTurma && estado.turma && estado.turma.segredo;
+    if (!confirm(prof ? "Apagar este material? Ele também sai da turma." : "Apagar este material?")) return;
+    estado.materiais = estado.materiais.filter((x) => x.id !== m.id);
+    if (m.deTurma && m.origem) estado.turmaIgnoradas = [...new Set([...(estado.turmaIgnoradas || []), m.origem])].slice(-300);
+    if (prof) rpc("estudai_turma_remover_material", { p_codigo: estado.turma.codigo, p_segredo: estado.turma.segredo, p_id: m.origem }).catch(() => toast("Não consegui tirar da turma agora."));
+    salvar(); fecharModal(); renderMateriais();
   };
   mostrarAba(m, aba);
 }
@@ -1231,12 +1254,18 @@ async function sincronizarTurma(avisar = true) {
   const removidas = new Set(t.removidas || []);
   const antes = estado.tarefas.length;
   estado.tarefas = estado.tarefas.filter((x) => !(x.origem && removidas.has(x.origem) && !x.feito));
-  if (novas || antes !== estado.tarefas.length) {
+  const mats = estado.turma.segredo ? { novos: 0, mudou: false } : receberMateriaisDaTurma(t.materiais, t.materiais_removidos);
+  if (novas || mats.mudou || antes !== estado.tarefas.length) {
     salvar();
     if (!$("#telaAgenda").classList.contains("oculto")) renderAgenda();
+    if (!$("#telaEstudar").classList.contains("oculto")) renderMateriais();
   }
-  if (novas && avisar) toast(`📥 ${novas} ${novas === 1 ? "atividade nova" : "atividades novas"} da turma ${t.nome}`, 3500);
-  return novas;
+  if (!estado.turma.segredo) rpc("estudai_turma_presenca", { p_codigo: estado.turma.codigo, p_aluno: contaCodigo() }).catch(() => {});
+  if (avisar && (novas || mats.novos)) {
+    const partes = [novas ? `${novas} ${novas === 1 ? "atividade nova" : "atividades novas"}` : "", mats.novos ? `${mats.novos} ${mats.novos === 1 ? "material" : "materiais"} para estudar` : ""].filter(Boolean);
+    toast(`📥 ${partes.join(" e ")} da turma ${t.nome}`, 3500);
+  }
+  return novas + mats.novos;
 }
 
 function abrirEntrarTurma(codigoInicial = "") {
@@ -1288,7 +1317,7 @@ function abrirCriarTurma() {
         <p>Passe este código para a turma <b>${esc(r.nome)}</b>:</p>
         <div style="font-size:34px;font-weight:800;letter-spacing:6px;text-align:center;margin:10px 0;color:var(--roxo)">${esc(r.codigo)}</div>
         <button class="botao primario" id="ctShare">📤 Mandar no grupo da turma</button>
-        <p class="pequeno">Agora, quando você fotografar o quadro e salvar, vai aparecer a opção <b>"Enviar também para a turma"</b>. Só este celular pode publicar (o acesso vai junto no seu código de recuperação).</p>`);
+        <p class="pequeno">Agora, quando você fotografar o quadro e salvar, vai aparecer a opção <b>"Enviar também para a turma"</b>. Os materiais de estudo também têm o botão <b>"📤 Enviar para a turma"</b>, e em ⚙️ você vê os resultados dos simulados (sem identificar ninguém). Só este celular pode publicar (o acesso vai junto no seu código de recuperação).</p>`);
       $("#ctShare").onclick = compartilharTurma;
     } catch (e) { toast(e.message, 3500); $("#ctIr").disabled = false; }
   };
@@ -1304,6 +1333,89 @@ async function publicarNaTurma(tarefas) {
     return true;
   } catch (e) { toast("Não consegui enviar para a turma: " + e.message, 4000); return false; }
 }
+
+/* ---------- material da turma ---------- */
+async function publicarMaterialNaTurma(m) {
+  const t = estado.turma; if (!t || !t.segredo) return false;
+  const tarefa = estado.tarefas.find((x) => x.id === m.tarefaId);
+  try {
+    const id = await rpc("estudai_turma_publicar_material", {
+      p_codigo: t.codigo, p_segredo: t.segredo,
+      p_material: { titulo: m.titulo, materia: m.materia, resumo: m.resumo, flashcards: m.flashcards, quiz: m.quiz, mapa: m.mapa || null, banco: m.banco || null },
+      p_tarefa_origem: tarefa && tarefa.origem ? tarefa.origem : null,
+    });
+    m.origem = id; salvar();
+    toast(`📤 Material enviado para a turma ${t.nome}`, 3000);
+    return true;
+  } catch (e) { toast("Não consegui enviar: " + e.message, 4000); return false; }
+}
+
+function receberMateriaisDaTurma(lista, removidos) {
+  const ignoradas = new Set(estado.turmaIgnoradas || []);
+  const jaTem = new Set(estado.materiais.map((x) => x.origem).filter(Boolean));
+  let novos = 0;
+  for (const x of lista || []) {
+    if (jaTem.has(x.id) || ignoradas.has(x.id)) continue;
+    const m = validarMaterial({ titulo: x.titulo, materia: x.materia, ...(x.conteudo || {}) });
+    if (!m) continue;
+    const tarefa = x.tarefa_origem ? estado.tarefas.find((t) => t.origem === x.tarefa_origem) : null;
+    estado.materiais.push({ ...m, banco: (x.conteudo && x.conteudo.banco) || undefined, id: novoId(), origem: x.id, deTurma: true, tarefaId: tarefa ? tarefa.id : null, criado: Date.now(), melhorNota: null });
+    novos++;
+  }
+  const rem = new Set(removidos || []);
+  const antes = estado.materiais.length;
+  estado.materiais = estado.materiais.filter((m) => !(m.deTurma && m.origem && rem.has(m.origem)));
+  return { novos, mudou: novos > 0 || antes !== estado.materiais.length };
+}
+
+/* ---------- resultado do simulado da turma (anônimo) ---------- */
+function enviarResultadoTurma(m, nota, acertos) {
+  if (!m.deTurma || !m.origem || !estado.turma || estado.turma.segredo || !ONLINE_DE_VERDADE) return;
+  rpc("estudai_turma_resultado", { p_codigo: estado.turma.codigo, p_aluno: contaCodigo(), p_material: m.origem, p_nota: nota, p_acertos: acertos }).catch(() => {});
+}
+
+/* ---------- painel do professor ---------- */
+async function abrirPainelTurma() {
+  const t = estado.turma; if (!t || !t.segredo) return;
+  const parar = carregando("Buscando os resultados da turma…");
+  let p;
+  try { p = await rpc("estudai_turma_painel", { p_codigo: t.codigo, p_segredo: t.segredo }); }
+  catch (e) { parar(); toast(e.message, 3500); return; }
+  parar();
+  const cor = (v) => v == null ? "var(--suave)" : v >= 70 ? "#087f5b" : v >= 50 ? "#b35c00" : "var(--vermelho)";
+  abrirModal(`
+    <div class="topo"><b>Resultados · ${esc(p.nome)} 📊</b><button class="fechar" data-fechar>✕</button></div>
+    <div class="linha">
+      <div class="card" style="text-align:center"><div style="font-size:26px;font-weight:800">${p.membros}</div><div class="pequeno">alunos na turma</div></div>
+      <div class="card" style="text-align:center"><div style="font-size:26px;font-weight:800">${p.ativos_7d}</div><div class="pequeno">usaram nos últimos 7 dias</div></div>
+    </div>
+    <p class="pequeno">Ninguém é identificado: você vê só números da turma. As notas e as questões aparecem quando 3 ou mais alunos fizerem o simulado.</p>
+    ${p.materiais.length ? p.materiais.map((m) => `
+      <div class="card" style="margin-top:10px">
+        <b>${esc(m.titulo)}</b>${m.materia ? ` <span class="pequeno">· ${esc(m.materia)}</span>` : ""}
+        <div class="pequeno" style="margin-top:4px">${m.feitos} ${m.feitos === 1 ? "aluno fez" : "alunos fizeram"} o simulado${p.membros ? ` (de ${p.membros})` : ""}</div>
+        ${m.media_primeira != null ? `
+          <div class="linha" style="margin-top:8px">
+            <div><div class="pequeno">Média na 1ª tentativa</div><div style="font-size:22px;font-weight:800;color:${cor(m.media_primeira)}">${m.media_primeira}%</div></div>
+            <div><div class="pequeno">Média da melhor nota</div><div style="font-size:22px;font-weight:800;color:${cor(m.media_melhor)}">${m.media_melhor}%</div></div>
+          </div>
+          ${m.questoes && m.questoes.length ? `<div class="pequeno" style="margin-top:10px"><b>Acerto por questão (1ª tentativa)</b></div>
+            ${m.questoes.map((q, i) => ({ ...q, i })).sort((a, b) => (a.acerto ?? 101) - (b.acerto ?? 101)).map((q) => `
+              <div style="margin-top:6px">
+                <div style="font-size:13px">${q.i + 1}. ${esc(q.pergunta)}</div>
+                <div style="display:flex;align-items:center;gap:8px"><div class="progresso" style="flex:1;margin:4px 0"><div style="width:${q.acerto ?? 0}%;background:${cor(q.acerto)}"></div></div><b style="font-size:13px;color:${cor(q.acerto)}">${q.acerto ?? "–"}%</b></div>
+              </div>`).join("")}
+            <p class="pequeno" style="margin-top:8px">As questões com menos acerto aparecem primeiro: são boas para revisar em sala.</p>` : ""}`
+        : `<p class="pequeno" style="margin:6px 0 0">Aguardando pelo menos 3 alunos para mostrar as notas.</p>`}
+      </div>`).join("")
+    : `<div class="vazio"><div class="em">📭</div><p>Nenhum material enviado ainda.<br>Crie um material em Estudar e toque em "📤 Enviar para a turma".</p></div>`}`);
+}
+
+/* ---------- revisão inteligente: cartões e questões que o aluno errou ---------- */
+function pendenciasRevisao(m) {
+  return (m.erros ? m.erros.length : 0) + (m.quizErros ? m.quizErros.length : 0);
+}
+function materialDaTarefa(t) { return estado.materiais.find((m) => m.tarefaId === t.id); }
 
 /* ---------- avisos no celular (Web Push) ---------- */
 function ehIphone() { return /iphone|ipad|ipod/i.test(navigator.userAgent); }
@@ -1397,6 +1509,7 @@ function abrirConta() {
       <b>👥 Minha turma</b>
       ${t
         ? `<p style="margin:6px 0">${esc(t.nome)} · código <b>${esc(t.codigo)}</b>${t.segredo ? "<br><span class='pequeno'>Você publica nesta turma.</span>" : ""}</p>
+           ${t.segredo ? `<button class="botao primario" id="tuPainel" style="margin:6px 0 4px;min-height:44px;padding:10px">📊 Ver resultados da turma</button>` : ""}
            <div class="acoes"><button class="mini roxo" id="tuShare">📤 Convidar</button><button class="mini" id="tuSync">🔄 Atualizar</button><button class="mini" id="tuSair">Sair da turma</button></div>`
         : `<p class="pequeno" style="margin:4px 0 8px">Receba as provas e trabalhos que o professor ou o representante publicar.</p>
            <div class="acoes"><button class="mini roxo" id="tuEntrar">Entrar com código</button><button class="mini" id="tuCriar">Sou professor / representante</button></div>`}
@@ -1427,6 +1540,7 @@ function abrirConta() {
   if ($("#tuEntrar")) $("#tuEntrar").onclick = () => abrirEntrarTurma();
   if ($("#tuCriar")) $("#tuCriar").onclick = abrirCriarTurma;
   if ($("#tuShare")) $("#tuShare").onclick = compartilharTurma;
+  if ($("#tuPainel")) $("#tuPainel").onclick = abrirPainelTurma;
   if ($("#tuSync")) $("#tuSync").onclick = async () => { const n = await sincronizarTurma(false); toast(n ? `📥 ${n} ${n === 1 ? "atividade nova" : "atividades novas"}` : "Nada novo na turma"); };
   if ($("#tuSair")) $("#tuSair").onclick = () => {
     if (t.segredo && !confirm("Se sair, este celular perde o acesso para publicar nesta turma. Sair mesmo?")) return;
@@ -1692,8 +1806,8 @@ function rodarFlashcards(m, c, fila) {
         <button class="botao" style="background:var(--verde-claro);color:#087f5b" id="fSabia">😎 Sabia</button>
       </div>`;
     $("#flash").onclick = () => { $("#flash").classList.toggle("virado"); $("#fBotoes").style.visibility = "visible"; };
-    $("#fErrei").onclick = () => { errei.push(fila[pos]); pos++; passo(); };
-    $("#fSabia").onclick = () => { pos++; passo(); };
+    $("#fErrei").onclick = () => { errei.push(fila[pos]); m.erros = [...new Set([...(m.erros || []), fila[pos]])]; salvar(); pos++; passo(); };
+    $("#fSabia").onclick = () => { if (m.erros) { m.erros = m.erros.filter((i) => i !== fila[pos]); salvar(); } pos++; passo(); };
   };
   passo();
 }
@@ -1710,19 +1824,25 @@ function mdSimples(md) {
 function rodarQuiz(m, c) {
   if (!m.quiz.length) { c.innerHTML = `<p class="vazio">Sem simulado neste material.</p>`; return; }
   let pos = 0, acertos = 0;
+  const respostas = [];
   const passo = () => {
     if (pos >= m.quiz.length) {
       const nota = Math.round((acertos / m.quiz.length) * 100);
+      m.quizErros = respostas.map((ok, i) => (ok ? null : i)).filter((i) => i !== null);
+      salvar();
+      enviarResultadoTurma(m, nota, respostas);
       registrarUso("simulado_fim", `${m.banco ? "questoes" : "caderno"} ${nota}%`);
       const recorde = m.melhorNota == null || nota > m.melhorNota;
       if (recorde) { m.melhorNota = nota; salvar(); }
       const frase = nota >= 90 ? "Pronto pra prova! 🏆" : nota >= 70 ? "Muito bom! Revise os erros e vai com tudo 💪" : nota >= 50 ? "Tá no caminho. Revê os flashcards e tenta de novo 📚" : "Calma, estudar é isso mesmo. Lê o resumo e tenta de novo 🙂";
       c.innerHTML = `<div class="card placar"><div class="n">${nota}%</div><p><b>${acertos} de ${m.quiz.length}</b> certas${recorde && pos > 0 ? " · novo recorde!" : ""}</p><p>${frase}</p></div>
         <div style="height:12px"></div><button class="botao primario" id="qDeNovo">Fazer de novo</button>
-        ${m.banco ? `<div style="height:8px"></div><button class="botao secundario" id="qMais">➕ Gerar mais questões</button>` : ""}
+        ${m.banco && m.banco !== "duvida" ? `<div style="height:8px"></div><button class="botao secundario" id="qMais">➕ Gerar mais questões</button>` : ""}
+        ${m.banco === "duvida" ? `<div style="height:8px"></div><button class="botao secundario" id="qDuvida">🙋 Tirar outra dúvida</button>` : ""}
         ${blocoCurtiu(m)}`;
       $("#qDeNovo").onclick = () => rodarQuiz(m, c);
       const mais = $("#qMais"); if (mais) mais.onclick = () => abrirBanco(m.banco === "enem" ? "enem" : "olimpiada");
+      const outra = $("#qDuvida"); if (outra) outra.onclick = () => abrirDuvida();
       ligarCurtiu(m);
       return;
     }
@@ -1741,6 +1861,7 @@ function rodarQuiz(m, c) {
     document.querySelectorAll("[data-op]").forEach((b) => b.onclick = () => {
       const esc_ = +b.dataset.op, certo = esc_ === q.correta;
       if (certo) acertos++;
+      respostas[pos] = certo;
       document.querySelectorAll("[data-op]").forEach((x) => {
         x.disabled = true;
         if (+x.dataset.op === q.correta) x.classList.add("certa");
@@ -1753,6 +1874,137 @@ function rodarQuiz(m, c) {
     });
   };
   passo();
+}
+
+/* ============================================================
+   TIRA-DÚVIDA — foto do exercício, explicação passo a passo e 3 parecidas
+   ============================================================ */
+let fotoDuvida = null;
+function abrirDuvida() {
+  fotoDuvida = null;
+  const desenhar = (texto = "") => {
+    abrirModal(`
+      <div class="topo"><b>Tira-dúvida 🙋</b><button class="fechar" data-fechar>✕</button></div>
+      <p class="pequeno" style="margin-top:0">Travou num exercício? Tire uma foto e eu te ajudo a resolver <b>passo a passo</b>, sem só entregar a resposta.</p>
+      ${fotoDuvida
+        ? `<div class="fotos"><div class="f"><img src="${fotoDuvida.preview}" alt="Exercício"><button class="x" id="dRm">✕</button></div></div>`
+        : `<div class="linha"><button class="botao secundario" id="dCamera">📷 Tirar foto</button><button class="botao secundario" id="dGaleria">🖼️ Galeria</button></div>`}
+      <label class="campo">Ou escreva sua dúvida (opcional)</label>
+      <textarea id="dTexto" maxlength="1500" placeholder="Ex.: não entendi como achar o x em 3x + 5 = 20">${esc(texto)}</textarea>
+      <div style="height:12px"></div>
+      <button class="botao primario" id="dIr">✨ Me ajuda a resolver</button>`);
+    const txt = () => $("#dTexto").value;
+    if ($("#dCamera")) $("#dCamera").onclick = () => { const t = txt(); $("#arquivoDuvida").setAttribute("capture", "environment"); $("#arquivoDuvida").onchange = (ev) => pegar(ev, t); $("#arquivoDuvida").click(); };
+    if ($("#dGaleria")) $("#dGaleria").onclick = () => { const t = txt(); $("#arquivoDuvida").removeAttribute("capture"); $("#arquivoDuvida").onchange = (ev) => pegar(ev, t); $("#arquivoDuvida").click(); };
+    if ($("#dRm")) $("#dRm").onclick = () => { const t = txt(); fotoDuvida = null; desenhar(t); };
+    $("#dIr").onclick = () => resolverDuvida(txt().trim(), false);
+  };
+  const pegar = async (ev, texto) => {
+    const arq = ev.target.files[0]; ev.target.value = ""; if (!arq) return;
+    try { fotoDuvida = await reduzirFoto(arq, 1600, 0.8); } catch (e) { toast(e.message); }
+    desenhar(texto);
+  };
+  desenhar();
+}
+
+async function resolverDuvida(pergunta, simples) {
+  if (!fotoDuvida && !pergunta) { toast("Tire uma foto do exercício ou escreva sua dúvida."); return; }
+  const parar = carregando(simples ? "Pensando num jeito mais fácil de explicar…" : "Lendo o exercício…");
+  try {
+    const r = await chamarIA({ modo: "duvida", fotos: fotoDuvida ? [{ mime: fotoDuvida.mime, data: fotoDuvida.data }] : [], pergunta, simples });
+    parar();
+    const d = validarDuvida(r);
+    if (!d) { toast(r.aviso || "Não consegui entender o exercício. Tente uma foto mais de perto e com boa luz.", 4500); return; }
+    mostrarDuvida(d, pergunta);
+  } catch (e) {
+    parar();
+    erroIA(e, () => mostrarDuvida(validarDuvida(DEMO_DUVIDA()), pergunta));
+  }
+}
+
+function validarDuvida(r) {
+  r = limparTudo(r || {});
+  const passos = (Array.isArray(r.passos) ? r.passos : []).filter((p) => p && (p.explicacao || p.pergunta))
+    .map((p) => ({ pergunta: String(p.pergunta || "").slice(0, 300), dica: String(p.dica || "").slice(0, 300), explicacao: String(p.explicacao || "").slice(0, 800) })).slice(0, 6);
+  if (!passos.length) return null;
+  const parecidas = validarMaterial({ resumo: ["x"], quiz: r.parecidas })?.quiz || [];
+  return {
+    materia: String(r.materia || "").slice(0, 40), enunciado: String(r.enunciado || "").slice(0, 1200),
+    passos, resposta: String(r.resposta || "").slice(0, 500), conceito: String(r.conceito || "").slice(0, 400),
+    parecidas, aviso: String(r.aviso || "").slice(0, 300),
+  };
+}
+
+function mostrarDuvida(d, pergunta) {
+  let visto = 0; // quantos passos já foram revelados
+  const dicas = new Set();
+  const desenhar = () => {
+    const fim = visto >= d.passos.length;
+    abrirModal(`
+      <div class="topo"><b>Vamos resolver juntos 🙋</b><button class="fechar" data-fechar>✕</button></div>
+      ${d.materia ? `<div class="pequeno">${esc(d.materia)}</div>` : ""}
+      ${d.aviso ? `<div class="aviso" style="margin-top:6px">${esc(d.aviso)}</div>` : ""}
+      ${d.enunciado ? `<div class="card" style="margin-top:8px;white-space:pre-wrap"><b>Exercício:</b> ${esc(d.enunciado)}</div>` : ""}
+      ${d.passos.map((p, i) => {
+        if (i > visto) return "";
+        const aberto = i < visto;
+        return `<div class="card" style="margin-top:10px;${aberto ? "" : "border-color:var(--roxo)"}">
+          <div class="pequeno"><b>Passo ${i + 1} de ${d.passos.length}</b></div>
+          ${p.pergunta ? `<div style="font-weight:700;margin-top:4px">🤔 ${esc(p.pergunta)}</div>` : ""}
+          ${!aberto && dicas.has(i) && p.dica ? `<div class="explica" style="margin-top:8px">💡 ${esc(p.dica)}</div>` : ""}
+          ${aberto ? `<div style="margin-top:8px;white-space:pre-wrap">${esc(p.explicacao)}</div>` : `
+            <p class="pequeno" style="margin:6px 0 0">Pense um pouco antes de ver. Se quiser, peça uma dica.</p>
+            <div class="acoes">
+              ${p.dica && !dicas.has(i) ? `<button class="mini" data-dica="${i}">💡 Dica</button>` : ""}
+              <button class="mini roxo" id="dVer">Ver o passo ${i + 1}</button>
+            </div>`}
+        </div>`;
+      }).join("")}
+      ${fim ? `
+        <div class="card" style="margin-top:10px;background:var(--verde-claro);border-color:transparent">
+          <b>✅ Resposta:</b> ${esc(d.resposta)}
+          ${d.conceito ? `<div style="margin-top:8px"><b>🧠 Para lembrar:</b> ${esc(d.conceito)}</div>` : ""}
+        </div>
+        <div style="height:12px"></div>
+        ${d.parecidas.length ? `<button class="botao primario" id="dTreinar">🎯 Treinar com ${d.parecidas.length} parecidas</button><div style="height:8px"></div>` : ""}
+        <button class="botao secundario" id="dSimples">😵 Ainda não entendi, explica de outro jeito</button>
+        <button class="botao fantasma" id="dOutra">📷 Outra dúvida</button>` : ""}`);
+    document.querySelectorAll("[data-dica]").forEach((b) => b.onclick = () => { dicas.add(+b.dataset.dica); desenhar(); });
+    if ($("#dVer")) $("#dVer").onclick = () => { visto++; desenhar(); const f = document.querySelector(".folha"); if (f) f.scrollTop = f.scrollHeight; };
+    if ($("#dTreinar")) $("#dTreinar").onclick = () => {
+      fecharModal();
+      irPara("estudar");
+      salvarMaterial({
+        titulo: `Dúvida: ${(d.enunciado || pergunta || "exercício").replace(/\s+/g, " ").slice(0, 60)}`,
+        materia: d.materia, banco: "duvida",
+        resumo: [d.enunciado ? `Exercício: ${d.enunciado}` : "", ...d.passos.map((p, i) => `Passo ${i + 1}: ${p.explicacao}`), d.resposta ? `Resposta: ${d.resposta}` : "", d.conceito ? `Para lembrar: ${d.conceito}` : ""].filter(Boolean),
+        flashcards: d.conceito ? [{ frente: `Qual é a ideia principal para resolver: ${(d.enunciado || "este exercício").slice(0, 120)}?`, verso: d.conceito }] : [],
+        quiz: d.parecidas, mapa: null,
+      }, null, "quiz");
+    };
+    if ($("#dSimples")) $("#dSimples").onclick = () => { fecharModal(); resolverDuvida(pergunta, true); };
+    if ($("#dOutra")) $("#dOutra").onclick = abrirDuvida;
+  };
+  desenhar();
+}
+
+function DEMO_DUVIDA() {
+  return {
+    materia: "Matemática", enunciado: "Resolva a equação: 3x + 5 = 20",
+    passos: [
+      { pergunta: "O que está \"atrapalhando\" o x de ficar sozinho?", dica: "Olhe o número que está sendo somado.", explicacao: "O +5 e o 3 que multiplica o x. Vamos tirar um de cada vez, começando pelo +5." },
+      { pergunta: "Como tirar o +5 do lado esquerdo?", dica: "Faça a operação contrária dos dois lados.", explicacao: "Tiramos 5 dos dois lados: 3x + 5 − 5 = 20 − 5, então 3x = 15." },
+      { pergunta: "E agora, como deixar só o x?", dica: "O 3 está multiplicando...", explicacao: "Dividimos os dois lados por 3: x = 15 ÷ 3, então x = 5." },
+    ],
+    resposta: "x = 5 (confira: 3 × 5 + 5 = 20 ✔️)",
+    conceito: "Para isolar o x, desfaça as operações na ordem contrária, fazendo a mesma coisa dos dois lados da igualdade.",
+    parecidas: [
+      { pergunta: "Resolva: 2x + 4 = 14", opcoes: ["x = 5", "x = 9", "x = 7", "x = 3"], correta: 0, explicacao: "2x = 14 − 4 = 10, então x = 10 ÷ 2 = 5." },
+      { pergunta: "Resolva: 5x − 3 = 22", opcoes: ["x = 4", "x = 5", "x = 25", "x = 19"], correta: 1, explicacao: "5x = 22 + 3 = 25, então x = 25 ÷ 5 = 5." },
+      { pergunta: "Resolva: 4x + 1 = 13", opcoes: ["x = 2", "x = 4", "x = 3", "x = 12"], correta: 2, explicacao: "4x = 13 − 1 = 12, então x = 12 ÷ 4 = 3." },
+    ],
+    aviso: "",
+  };
 }
 
 /* ============================================================
@@ -1840,7 +2092,12 @@ function tarefasDoDia(rot, iso, n) {
   for (const t of estado.tarefas.filter((x) => !x.feito && x.data)) {
     const dist = diasEntre(iso, t.data);
     const mat = t.materia || t.titulo;
-    if (t.tipo === "prova") {
+    const mt = materialDaTarefa(t), rev = mt ? pendenciasRevisao(mt) : 0;
+    if (t.tipo === "prova" && rev && [1, 2, 3, 5].includes(dist)) {
+      const quando = dist === 1 ? "prova amanhã" : `prova em ${dist} dias`;
+      const partes = [mt.erros && mt.erros.length ? `${mt.erros.length} ${mt.erros.length === 1 ? "cartão" : "cartões"}` : "", mt.quizErros && mt.quizErros.length ? `${mt.quizErros.length} ${mt.quizErros.length === 1 ? "questão" : "questões"}` : ""].filter(Boolean).join(" e ");
+      fila.push({ prio: [0, 100, 92, 88, 0, 60][dist], materia: mat, texto: `🔁 Revisar ${partes} que você errou${dist === 1 ? " e refazer o simulado" : ""} · ${quando}`, tarefaId: t.id });
+    } else if (t.tipo === "prova") {
       if (dist === 1) fila.push({ prio: 100, materia: mat, texto: `Simulado e revisão final · prova amanhã`, tarefaId: t.id });
       else if (dist === 2) fila.push({ prio: 92, materia: mat, texto: `Flashcards e exercícios · prova em 2 dias`, tarefaId: t.id });
       else if (dist === 3) fila.push({ prio: 88, materia: mat, texto: `Estudar o conteúdo e fazer o resumo · prova em 3 dias`, tarefaId: t.id });

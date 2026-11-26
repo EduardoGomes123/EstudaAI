@@ -8,7 +8,8 @@ O app para estudantes de 13 a 17 anos tem duas funções:
    - **Questões reais:** questões oficiais de 2009 a 2023, com ano, número, imagens e gabarito oficial, buscadas na base pública [enem.dev](https://enem.dev). A IA explica cada resposta. Dá para filtrar por área, ano e assunto.
    - **Parecidas (IA):** a IA cria questões novas a partir de questões reais e mostra em qual cada uma foi inspirada (ex.: "Parecida com: ENEM 2019 · Questão 137").
 4. **Olimpíadas.** O aluno escolhe a olimpíada (OBMEP, OBM, Canguru, OBA, OBF, OBQ, OBB, OBR, OBL, ONHB, OLP, OBI), a série e o assunto. A IA cria um banco de questões inéditas no estilo da prova, com gabarito e explicação.
-5. **Feedback.** O botão 💬 Opinar (no topo) e o "esse material ficou bom?" coletam a opinião dos alunos.
+5. **Tira-dúvida.** Foto do exercício e explicação passo a passo, com 3 parecidas para treinar.
+6. **Feedback.** O botão 💬 Opinar (no topo) e o "esse material ficou bom?" coletam a opinião dos alunos.
 
 Esta primeira versão de teste não tem login nem pagamento. Os dados ficam salvos só no celular de quem usa, e as fotos não ficam guardadas em lugar nenhum.
 
@@ -81,6 +82,14 @@ Como funciona por trás:
 - `supabase/functions/estudai-lembretes`: função que envia os avisos. Roda de hora em hora pelo `pg_cron` (`supabase/estudai_v2_cron.sql`).
 - As chaves dos avisos ficam na tabela `estudai_config`, que só o servidor lê. Não precisa configurar nada na Vercel.
 - Painel novo: `estudai_contas_resumo` (contas com backup, turmas, atividades de turma e avisos ligados).
+
+## Tira-dúvida, material da turma, revisão e resultados
+
+- **Tira-dúvida (aba Estudar):** o aluno tira foto do exercício ou escreve a dúvida. A IA explica **passo a passo**: em cada passo, primeiro faz uma pergunta para o aluno pensar, depois oferece dica e só então mostra o passo. No final mostra a resposta e "para lembrar", e o aluno pode treinar com 3 exercícios parecidos (vira um material com simulado). O botão "Ainda não entendi" pede uma explicação mais simples. Modo `duvida` em `api/ia.js`.
+- **Material da turma:** quem criou a turma abre um material e toca em "📤 Enviar para a turma". Os alunos recebem o material ligado à prova da turma. Se o professor apagar, sai da turma também.
+- **Revisão inteligente:** o app guarda os cartões que o aluno marcou "Errei" e as questões que errou no simulado. Isso aparece como "🔁 N para revisar" no material, no botão da agenda, no cronograma (5, 3, 2 e 1 dia antes da prova) e no aviso do celular ("Você tem 3 cartões para revisar").
+- **Resultados para o professor (⚙️ → Ver resultados da turma):** número de alunos na turma, quantos usaram nos últimos 7 dias e, para cada material, quantos fizeram o simulado, a média na 1ª tentativa, a média da melhor nota e o acerto por questão (as mais erradas primeiro). Ninguém é identificado: o resultado vai com um código anônimo, e as notas só aparecem com 3 ou mais alunos.
+- Banco: `supabase/estudai_v3.sql` (tabelas `estudai_turma_materiais`, `estudai_turma_membros` e `estudai_turma_resultados`).
 
 ## O que observar no teste com os adolescentes
 

@@ -57,6 +57,30 @@ Responda SOMENTE com JSON neste formato:
 {"dias":{"seg":{"inicio":"07:00","fim":"12:20","materias":["Matemática","Português"]}},"aviso":""}`;
 }
 
+function promptDuvida({ pergunta, simples }) {
+  return `Você é um professor particular paciente de um estudante brasileiro do ensino fundamental ou médio (11 a 17 anos).
+O aluno travou num exercício${pergunta ? " e escreveu" : ""}.${pergunta ? `\nO que o aluno escreveu: """${pergunta}"""` : ""}
+${simples ? "IMPORTANTE: o aluno já viu uma explicação e NÃO entendeu. Explique de um jeito AINDA MAIS SIMPLES, com passos menores, palavras do dia a dia e um exemplo concreto (dinheiro, comida, jogo, futebol).\n" : ""}
+Objetivo: fazer o aluno APRENDER a resolver, não só entregar a resposta. Guie passo a passo.
+
+Regras:
+- Se houver vários exercícios na foto, resolva só o primeiro (ou o que estiver marcado/circulado) e diga isso em "aviso".
+- "enunciado": reescreva o exercício de forma curta e clara.
+- "passos": de 2 a 6 passos. Em cada passo:
+  - "pergunta": uma pergunta curta que faz o aluno pensar no que fazer agora (ex.: "O que precisamos descobrir primeiro?").
+  - "dica": uma dica curta que ajuda sem entregar o passo.
+  - "explicacao": o passo feito, com a conta ou o raciocínio, em linguagem simples (até 3 frases).
+- "resposta": a resposta final, curta.
+- "conceito": a ideia principal para lembrar em outros exercícios (1 ou 2 frases).
+- "parecidas": exatamente 3 exercícios PARECIDOS (mesmo conceito, números/contexto diferentes), de múltipla escolha com 4 opções, com "correta" (índice 0 a 3) e "explicacao" curta.
+- Se for redação, interpretação de texto ou pergunta aberta, adapte: os passos mostram como pensar e montar a resposta.
+- Se a imagem não tiver exercício escolar, estiver ilegível ou pedir algo impróprio, deixe "passos" vazio e explique em "aviso".
+- Nunca invente dados que não estão no exercício.
+
+Responda SOMENTE com JSON neste formato:
+{"materia":"","enunciado":"","passos":[{"pergunta":"","dica":"","explicacao":""}],"resposta":"","conceito":"","parecidas":[{"pergunta":"","opcoes":["","","",""],"correta":0,"explicacao":""}],"aviso":""}`;
+}
+
 function promptEstudo({ materia, assunto }) {
   return `Você é um professor particular paciente que ajuda um estudante brasileiro do ensino fundamental ou médio a estudar para a prova.
 As fotos são páginas do caderno ou do livro dele.${materia ? `\nMatéria: ${materia}.` : ""}${assunto ? `\nA prova/atividade é: ${assunto}.` : ""}
@@ -181,7 +205,7 @@ module.exports = async (req, res) => {
   if (typeof dados === "string") { try { dados = JSON.parse(dados); } catch { return resposta(400, { erro: "Pedido inválido." }); } }
 
   const { modo, fotos, hoje, materia, assunto } = dados || {};
-  if (!["agenda", "estudo", "horario", "mapa", "banco", "enem"].includes(modo)) return resposta(400, { erro: "Modo inválido." });
+  if (!["agenda", "estudo", "horario", "mapa", "banco", "enem", "duvida"].includes(modo)) return resposta(400, { erro: "Modo inválido." });
 
   // Questões oficiais do ENEM funcionam mesmo sem a chave (só ficam sem explicação da IA)
   if (modo === "enem") {
@@ -213,6 +237,22 @@ module.exports = async (req, res) => {
     const texto = String(dados.texto || "").slice(0, 8000).trim();
     if (!texto) return resposta(400, { erro: "Envie o resumo para montar o mapa." });
     return responderComIA(chave, [{ text: promptMapa({ titulo: String(dados.titulo || "").slice(0, 100), texto }) }]);
+  }
+
+  if (modo === "duvida") {
+    const pergunta = String(dados.pergunta || "").slice(0, 1500).trim();
+    const lista = Array.isArray(fotos) ? fotos.slice(0, 2) : [];
+    if (!pergunta && !lista.length) return resposta(400, { erro: "Tire uma foto do exercício ou escreva sua dúvida." });
+    let soma = 0;
+    for (const f of lista) {
+      if (!f || typeof f.data !== "string" || !/^image\/(jpeg|png|webp)$/.test(f.mime || "")) return resposta(400, { erro: "Formato de foto inválido." });
+      soma += f.data.length;
+    }
+    if (soma > MAX_BYTES_TOTAL) return resposta(413, { erro: "A foto ficou grande demais." });
+    return responderComIA(chave, [
+      { text: promptDuvida({ pergunta, simples: Boolean(dados.simples) }) },
+      ...lista.map((f) => ({ inline_data: { mime_type: f.mime, data: f.data } })),
+    ]);
   }
 
   if (!Array.isArray(fotos) || fotos.length === 0) return resposta(400, { erro: "Envie pelo menos uma foto." });

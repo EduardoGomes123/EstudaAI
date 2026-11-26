@@ -4,6 +4,7 @@
 import webpush from "npm:web-push@3.6.7";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+type Material = { tarefaId?: string; erros?: number[]; quizErros?: number[] };
 type Tarefa = { id?: string; origem?: string; tipo?: string; materia?: string; titulo?: string; data?: string | null; feito?: boolean };
 
 const TIPOS: Record<string, string> = { prova: "Prova", trabalho: "Trabalho", dever: "Dever", apresentacao: "Apresentação", outro: "Atividade" };
@@ -17,7 +18,7 @@ function nomeTarefa(t: Tarefa) {
   return t.materia ? `${tipo} de ${t.materia}` : `${tipo}: ${t.titulo || ""}`.trim();
 }
 
-function montarAviso(tarefas: Tarefa[], hoje: string, diario: boolean, temRotina: boolean) {
+function montarAviso(tarefas: Tarefa[], hoje: string, diario: boolean, temRotina: boolean, materiais: Material[] = []) {
   const pend = tarefas.filter((t) => !t.feito && t.data && /^\d{4}-\d{2}-\d{2}$/.test(t.data));
   const grandes = ["prova", "trabalho", "apresentacao"];
   const amanha = pend.filter((t) => diasEntre(hoje, t.data!) === 1);
@@ -29,9 +30,13 @@ function montarAviso(tarefas: Tarefa[], hoje: string, diario: boolean, temRotina
     const quando = diasEntre(hoje, p.data!) === 1 ? "amanhã" : "em 3 dias";
     const mais = lista.length - 1;
     const title = `📚 ${nomeTarefa(p)} ${quando}`;
-    const acao = p.tipo === "prova"
+    let acao = p.tipo === "prova"
       ? (quando === "amanhã" ? "Que tal fazer o simulado e revisar os flashcards?" : "Bom momento para fazer o resumo e começar a revisar.")
       : p.tipo === "dever" ? "Já deu para adiantar?" : "Bora adiantar hoje?";
+    const mat = p.tipo === "prova" ? materiais.find((m) => m && m.tarefaId === p.id) : undefined;
+    const nCards = mat?.erros?.length || 0, nQuest = mat?.quizErros?.length || 0;
+    const revisar = [nCards ? `${nCards} ${nCards === 1 ? "cartão" : "cartões"}` : "", nQuest ? `${nQuest} ${nQuest === 1 ? "questão" : "questões"}` : ""].filter(Boolean).join(" e ");
+    if (revisar) acao = `Você tem ${revisar} para revisar. Bora?`;
     const body = `${acao}${mais > 0 ? ` (+${mais} ${mais === 1 ? "atividade" : "atividades"} na agenda)` : ""}`;
     return { title, body, tag: `estudai-${hoje}` };
   }
@@ -78,7 +83,7 @@ Deno.serve(async (req) => {
       const ignoradas = new Set(Array.isArray(dados.turmaIgnoradas) ? dados.turmaIgnoradas : []);
       for (const t of await tarefasDaTurma(dados.turma.codigo)) if (!jaTem.has(t.origem) && !ignoradas.has(t.origem)) tarefas = [...tarefas, t];
     }
-    const aviso = montarAviso(tarefas, hoje, s.diario, Boolean(dados.rotina));
+    const aviso = montarAviso(tarefas, hoje, s.diario, Boolean(dados.rotina), Array.isArray(dados.materiais) ? dados.materiais : []);
     if (!aviso) { sem_nada++; continue; }
     try {
       await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify({ ...aviso, url: "/" }), { TTL: 6 * 3600, urgency: "normal" });
