@@ -341,10 +341,14 @@ function toast(msg, ms = 2600) {
   const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
   document.body.appendChild(t); setTimeout(() => t.remove(), ms);
 }
-function carregando(msg) {
+// msg pode ser uma lista: as frases vão trocando enquanto a IA trabalha
+function carregando(msg, etapas) {
   const el = document.createElement("div"); el.className = "carregando";
-  el.innerHTML = `<div class="spinner"></div><b style="font-size:18px">${esc(msg)}</b><div class="pequeno">Isso leva uns segundinhos…</div>`;
-  document.body.appendChild(el); return () => el.remove();
+  el.innerHTML = `<div class="spinner"></div><b style="font-size:18px" id="carMsg">${esc(msg)}</b><div class="pequeno" id="carSub">Isso leva uns segundinhos…</div>`;
+  document.body.appendChild(el);
+  let i = 0;
+  const t = etapas && etapas.length ? setInterval(() => { if (i < etapas.length) { const b = el.querySelector("#carMsg"); if (b) b.textContent = etapas[i++]; } }, 4000) : null;
+  return () => { if (t) clearInterval(t); el.remove(); };
 }
 
 /* ---------- fotos: reduz antes de enviar ---------- */
@@ -2498,7 +2502,7 @@ function abrirRedacao() {
       if (camera) inp.setAttribute("capture", "environment"); else inp.removeAttribute("capture");
       inp.onchange = async (ev) => {
         const arqs = [...ev.target.files].slice(0, 3 - fotosRedacao.length); ev.target.value = "";
-        for (const a of arqs) { try { fotosRedacao.push(await reduzirFoto(a, 1600, 0.8)); } catch (e) { toast(e.message); } }
+        for (const a of arqs) { try { fotosRedacao.push(await reduzirFoto(a, 1500, 0.72)); } catch (e) { toast(e.message); } }
         desenhar(...v);
       };
       inp.click();
@@ -2508,7 +2512,9 @@ function abrirRedacao() {
     $("#rdIr").onclick = async () => {
       const [tema, texto] = vals();
       if (!fotosRedacao.length && texto.trim().length < 200) { toast("Tire foto da redação ou cole o texto completo."); return; }
-      const parar = carregando("Lendo e corrigindo sua redação…");
+      const parar = carregando(fotosRedacao.length ? "📷 Lendo sua letra…" : "📖 Lendo sua redação…",
+        tipo === "escola" ? ["✏️ Conferindo ortografia…", "🧭 Vendo se seguiu o tema…", "🧱 Olhando os parágrafos…", "🔗 Conferindo a ligação das ideias…", "✨ Preparando dicas…", "Quase lá…"]
+          : ["✏️ Competência 1: norma padrão…", "🧭 Competência 2: tema e repertório…", "🧱 Competência 3: argumentos…", "🔗 Competência 4: coesão…", "🛠️ Competência 5: proposta de intervenção…", "✨ Separando as dicas…", "Quase lá…"]);
       try {
         const r = await chamarIA({ modo: "redacao", tipo, tema: tema.trim(), texto: texto.trim(), fotos: fotosRedacao.map((f) => ({ mime: f.mime, data: f.data })) });
         parar();
@@ -2876,7 +2882,7 @@ function abrirConquistas() {
    CRONOGRAMA — o aluno informa os horários e o app monta a semana
    ============================================================ */
 const DIAS_SEM = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
-const VERSAO_APP = "17";
+const VERSAO_APP = "18";
 const CHAVE_DIA = { seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, sab: 6 };
 const BASE_MATERIAS = ["Matemática", "Português", "Ciências", "História", "Geografia", "Inglês"];
 const toMin = (h) => { const [a, b] = String(h || "0:0").split(":").map(Number); return (a || 0) * 60 + (b || 0); };

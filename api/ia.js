@@ -238,14 +238,17 @@ function extrairJSON(texto) {
   return null;
 }
 
-async function chamarGemini(chave, modelo, partes) {
+// Modos em que a IA não precisa "pensar" muito: responde bem mais rápido
+const PENSAR_POUCO = new Set(["redacao", "boletim", "agenda", "horario"]);
+
+async function chamarGemini(chave, modelo, partes, rapido) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`;
   const r = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json", "x-goog-api-key": chave },
     body: JSON.stringify({
       contents: [{ role: "user", parts: partes }],
-      generationConfig: { responseMimeType: "application/json", temperature: 0.3 },
+      generationConfig: { responseMimeType: "application/json", temperature: 0.3, ...(rapido ? { thinkingConfig: { thinkingLevel: "low" } } : {}) },
     }),
   });
   const corpo = await r.json().catch(() => ({}));
@@ -287,20 +290,20 @@ module.exports = async (req, res) => {
       serie: String(dados.serie || "").slice(0, 40),
       assunto: String(dados.assunto || "").slice(0, 120),
     });
-    return responderComIA(chave, [{ text: texto }]);
+    return responderComIA(chave, [{ text: texto }], modo);
   }
 
   if (modo === "mapa") {
     const texto = String(dados.texto || "").slice(0, 8000).trim();
     if (!texto) return resposta(400, { erro: "Envie o resumo para montar o mapa." });
-    return responderComIA(chave, [{ text: promptMapa({ titulo: String(dados.titulo || "").slice(0, 100), texto }) }]);
+    return responderComIA(chave, [{ text: promptMapa({ titulo: String(dados.titulo || "").slice(0, 100), texto }) }], modo);
   }
 
   if (modo === "boletim") {
     const f = Array.isArray(fotos) ? fotos[0] : null;
     if (!f || typeof f.data !== "string" || !/^image\/(jpeg|png|webp)$/.test(f.mime || "")) return resposta(400, { erro: "Tire uma foto do boletim." });
     if (f.data.length > MAX_BYTES_TOTAL) return resposta(413, { erro: "A foto ficou grande demais." });
-    return responderComIA(chave, [{ text: promptBoletim() }, { inline_data: { mime_type: f.mime, data: f.data } }]);
+    return responderComIA(chave, [{ text: promptBoletim() }, { inline_data: { mime_type: f.mime, data: f.data } }], modo);
   }
 
   if (modo === "redacao") {
@@ -316,7 +319,7 @@ module.exports = async (req, res) => {
     return responderComIA(chave, [
       { text: promptRedacao({ tema: String(dados.tema || "").slice(0, 300), tipo: dados.tipo === "escola" ? "escola" : "enem", texto }) },
       ...lista.map((f) => ({ inline_data: { mime_type: f.mime, data: f.data } })),
-    ]);
+    ], modo);
   }
 
   if (modo === "duvida") {
@@ -332,7 +335,7 @@ module.exports = async (req, res) => {
     return responderComIA(chave, [
       { text: promptDuvida({ pergunta, simples: Boolean(dados.simples) }) },
       ...lista.map((f) => ({ inline_data: { mime_type: f.mime, data: f.data } })),
-    ]);
+    ], modo);
   }
 
   if (!Array.isArray(fotos) || fotos.length === 0) return resposta(400, { erro: "Envie pelo menos uma foto." });
@@ -359,15 +362,20 @@ module.exports = async (req, res) => {
     ...fotos.map((f) => ({ inline_data: { mime_type: f.mime, data: f.data } })),
   ];
 
-  return responderComIA(chave, partes);
+  return responderComIA(chave, partes, modo);
 };
 
-async function perguntarIA(chave, partes) {
+async function perguntarIA(chave, partes, modo) {
   const modelos = [process.env.GEMINI_MODEL, ...MODELOS_RESERVA].filter((m, i, a) => m && a.indexOf(m) === i);
   let ultimoErro = "Não foi possível falar com a IA.";
   for (const modelo of modelos) {
     let r;
-    try { r = await chamarGemini(chave, modelo, [...partes, { text: REGRA_TEXTO }]); }
+    const rapido = PENSAR_POUCO.has(modo);
+    try {
+      r = await chamarGemini(chave, modelo, [...partes, { text: REGRA_TEXTO }], rapido);
+      // se este modelo não aceitar o ajuste de "pensar pouco", tenta de novo sem ele
+      if (rapido && r.status === 400 && /think/i.test(r.corpo?.error?.message || "")) r = await chamarGemini(chave, modelo, [...partes, { text: REGRA_TEXTO }], false);
+    }
     catch { ultimoErro = "Falha de conexão com a IA."; continue; }
 
     if (r.status === 404 || r.status === 400 && /not found|not supported/i.test(r.corpo?.error?.message || "")) {
@@ -387,8 +395,8 @@ async function perguntarIA(chave, partes) {
   return { status: 502, erro: ultimoErro };
 }
 
-async function responderComIA(chave, partes) {
-  const r = await perguntarIA(chave, partes);
+async function responderComIA(chave, partes, modo) {
+  const r = await perguntarIA(chave, partes, modo);
   if (r.json) return resposta(200, r.json);
   return resposta(r.status, { erro: r.erro });
 }
