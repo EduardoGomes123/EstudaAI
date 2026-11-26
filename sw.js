@@ -1,6 +1,6 @@
 // Estudaí — guarda a "casca" do app para abrir rápido e funcionar sem internet
 // (a IA continua precisando de internet).
-const CACHE = "estudai-v16";
+const CACHE = "estudai-v17";
 const ARQUIVOS = ["/", "/index.html", "/manifest.json", "/icon.svg", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -19,7 +19,7 @@ self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET" || url.pathname.startsWith("/api/")) return;
   // rede primeiro (pega atualizações), cache se estiver sem internet
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, e.request.mode === "navigate" ? { cache: "no-store" } : undefined)
       .then((r) => { const copia = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, copia)); return r; })
       .catch(() => caches.match(e.request).then((r) => r || caches.match("/index.html")))
   );

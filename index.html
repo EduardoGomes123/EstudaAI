@@ -825,7 +825,7 @@ function mostrarAba(m, aba) {
   if (aba === "resumo") {
     if (!m.resumoVisto && m.resumo.length) { m.resumoVisto = true; salvar(); }
     c.innerHTML = m.resumo.length
-      ? `${vozSuportada() ? `<button class="mini roxo" id="ouvirResumo" style="margin-bottom:8px">🔊 Ouvir o resumo</button>` : ""}
+      ? `<button class="mini roxo" id="ouvirResumo" style="margin-bottom:8px">🔊 Ouvir o resumo</button>
          <div class="card"><ol class="resumo">${m.resumo.map((r) => `<li>${esc(r)}</li>`).join("")}</ol></div>
          <div style="height:12px"></div><button class="botao secundario" id="irMapa">${m.banco ? "Resolver as questões →" : "Ver o mapa mental →"}</button>
          ${blocoCurtiu(m)}`
@@ -2157,7 +2157,8 @@ function renderMais() {
       ${item("mConq", "🏅", "Conquistas", `${ganhas} de ${CONQUISTAS.length} conquistadas`)}
       ${item("mDuvida", "🙋", "Tira-dúvida", "Foto do exercício e explicação passo a passo")}
       ${item("mConta", "⚙️", "Conta, turma e avisos", "Código de recuperação, turma e notificações")}
-    </div>`;
+    </div>
+    <p class="pequeno" style="text-align:center;margin-top:14px">EstudAÍ · versão ${VERSAO_APP}</p>`;
   $("#mFoco").onclick = () => abrirFoco();
   $("#mRevisao").onclick = abrirRevisao;
   $("#mRelampago").onclick = abrirRelampago;
@@ -2634,6 +2635,7 @@ function pararVoz() {
   if (vozBotao) { vozBotao.textContent = vozBotao.dataset.rotulo; vozBotao = null; }
 }
 function alternarVoz(textos, botao, rotulo) {
+  if (!vozSuportada()) { toast("Este navegador não tem leitura em voz alta. Tente pelo Safari."); return; }
   if (vozBotao === botao) { pararVoz(); return; }
   pararVoz();
   const vozes = speechSynthesis.getVoices();
@@ -2874,6 +2876,7 @@ function abrirConquistas() {
    CRONOGRAMA — o aluno informa os horários e o app monta a semana
    ============================================================ */
 const DIAS_SEM = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+const VERSAO_APP = "17";
 const CHAVE_DIA = { seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, sab: 6 };
 const BASE_MATERIAS = ["Matemática", "Português", "Ciências", "História", "Geografia", "Inglês"];
 const toMin = (h) => { const [a, b] = String(h || "0:0").split(":").map(Number); return (a || 0) * 60 + (b || 0); };
@@ -3336,7 +3339,19 @@ window.addEventListener("online", () => sincronizarTurma());
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") sincronizarTurma(); });
 if (ONLINE_DE_VERDADE && estado.tarefas.length && !(estado.conta && estado.conta.ultimoBackup)) agendarBackup();
 if ("serviceWorker" in navigator && location.protocol === "https:") {
-  navigator.serviceWorker.register("sw.js").catch(() => {});
+  // atualiza sozinho: quando sai versão nova, o app recarrega (se não tiver nada aberto)
+  const tinhaControle = !!navigator.serviceWorker.controller;
+  let recarregou = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!tinhaControle || recarregou) return;
+    recarregou = true;
+    if (!$("#camadaModal").innerHTML) location.reload();
+    else toast("✨ Versão nova do app! Feche esta janela para atualizar.", 4000), document.addEventListener("click", () => { if (!$("#camadaModal").innerHTML) location.reload(); });
+  });
+  navigator.serviceWorker.register("sw.js").then((reg) => {
+    reg.update().catch(() => {});
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update().catch(() => {}); });
+  }).catch(() => {});
 }
 </script>
 </body>
