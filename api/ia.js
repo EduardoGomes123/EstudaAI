@@ -100,14 +100,16 @@ PASSO 3 — Notas de cada disciplina, na ordem dos períodos (1º, 2º, 3º, 4º
 - Se cada período tem subcolunas (nota, faltas, recuperação), pegue a NOTA do período. Se houver recuperação do período com nota maior, use a maior.
 - Escala de 0 a 10. Se o boletim usa 0 a 100, divida por 10. Vírgula vira ponto (7,5 → 7.5). Conceitos (A, B, C...) → null.
 - Período sem nota ainda (vazio, traço, "--"): null. Nunca invente notas.
-- Ignore faltas, frequência, média anual, média final, recuperação final, conselho de classe e resultado.
+- "media_anual": a média do ano daquela disciplina, se estiver escrita (coluna "Média Anual", "MA", "Média", "M.A.", "Média das unidades"). Se não estiver escrita, null (não calcule).
+- "final": a nota da recuperação final / prova final / média final depois da recuperação, se estiver escrita ("Rec. Final", "PF", "Média Final", "MF"). Se não houver, null.
+- Ignore faltas, frequência, conselho de classe e resultado.
 - "media": a média mínima para aprovação, se estiver escrita (ex.: "média 6,0"); senão null.
 - Use nomes padronizados: Matemática, Português, Redação, Ciências, Física, Química, Biologia, História, Geografia, Inglês, Espanhol, Artes, Educação Física, Filosofia, Sociologia, Ensino Religioso. "Língua Portuguesa" = Português; "Língua Inglesa" = Inglês; "Arte" = Artes.
 
 Se a imagem não for um boletim ou estiver ilegível, responda {"materias":[],"aviso":"explicação curta"}.
 
 Responda SOMENTE com JSON neste formato:
-{"ano":${ano},"serie":"8º ano","periodos":4,"nome_periodo":"unidade","media":null,"materias":[{"materia":"Matemática","notas":[7.5,8,null,null]}],"aviso":""}`;
+{"ano":${ano},"serie":"8º ano","periodos":4,"nome_periodo":"unidade","media":null,"materias":[{"materia":"Matemática","notas":[7.5,8,null,null],"media_anual":null,"final":null}],"aviso":""}`;
 }
 
 function promptRedacao({ tema, tipo, texto }) {

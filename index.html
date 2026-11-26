@@ -2216,7 +2216,7 @@ function abrirFoco(bloco = null) {
 function confNotas() {
   if (!estado.notas || typeof estado.notas !== "object") estado.notas = {};
   const n = estado.notas;
-  const padrao = { media: 6, periodos: 4, nomePer: "", ano: new Date().getFullYear(), serie: "", materias: {}, anteriores: {} };
+  const padrao = { media: 6, periodos: 4, nomePer: "", ano: new Date().getFullYear(), serie: "", materias: {}, extras: {}, anteriores: {} };
   for (const [k, v] of Object.entries(padrao)) if (n[k] == null) n[k] = v;
   if (!n.anteriores || typeof n.anteriores !== "object") n.anteriores = {};
   if (!NOMES_PER[n.nomePer]) n.nomePer = n.periodos === 3 ? "trimestre" : "bimestre";
@@ -2227,21 +2227,55 @@ function confNotas() {
 const NOMES_PER = { bimestre: "B", trimestre: "T", unidade: "U", etapa: "E" };
 function anoValido(v) { const x = parseInt(v, 10); const agora = new Date().getFullYear(); return x >= 2000 && x <= agora + 1 ? x : null; }
 function notaIA(v) { const x = parseFloat(String(v ?? "").replace(",", ".")); if (!Number.isFinite(x)) return null; return numNota(x > 10 && x <= 100 ? x / 10 : x); }
-function temNotas(mats) { return Object.values(mats || {}).some((l) => (l || []).some((v) => numNota(v) != null)); }
+function temNotas(mats, extras) { return Object.values(mats || {}).some((l) => (l || []).some((v) => numNota(v) != null)) || Object.values(extras || {}).some((e) => e && (numNota(e.anual) != null || numNota(e.final) != null)); }
 function numNota(v) { const x = parseFloat(String(v).replace(",", ".")); return Number.isFinite(x) && x >= 0 && x <= 10 ? x : null; }
 function fmt1(x) { return x.toFixed(1).replace(".", ","); }
-function situacaoNota(lista, media, periodos) {
-  const vals = lista.slice(0, periodos).map(numNota);
+// Situação da matéria no ano: usa a nota final (recuperação) e a média anual do boletim, se houver
+function situacaoNota(lista, media, periodos, extra) {
+  extra = extra || {};
+  const vals = (lista || []).slice(0, periodos).map(numNota);
   const feitas = vals.filter((v) => v != null);
-  if (!feitas.length) return { media: null, txt: "Sem notas ainda", cor: "var(--suave)" };
+  const anual = numNota(extra.anual), final = numNota(extra.final);
   const soma = feitas.reduce((a, b) => a + b, 0);
-  const mediaAtual = soma / feitas.length;
+  const calc = feitas.length ? soma / feitas.length : null;
+  const mostrada = anual != null ? anual : calc;
+  if (final != null) return final >= media
+    ? { media: mostrada, final, txt: `✅ Aprovado na final (${fmt1(final)})`, cor: "#087f5b" }
+    : { media: mostrada, final, txt: `⚠️ Final ${fmt1(final)}, abaixo de ${fmt1(media)}. Fale com a escola.`, cor: "var(--vermelho)" };
+  if (anual != null && (feitas.length === periodos || !feitas.length)) return anual >= media
+    ? { media: anual, txt: "✅ Aprovado no ano", cor: "#087f5b" }
+    : { media: anual, txt: "⚠️ Média do ano abaixo: veja a recuperação final", cor: "var(--vermelho)" };
+  if (!feitas.length) return { media: null, txt: "Sem notas ainda", cor: "var(--suave)" };
   const faltam = periodos - feitas.length;
-  if (!faltam) return mediaAtual >= media ? { media: mediaAtual, txt: "✅ Aprovado", cor: "#087f5b" } : { media: mediaAtual, txt: "⚠️ Abaixo da média: fale com o professor sobre recuperação", cor: "var(--vermelho)" };
+  if (!faltam) return calc >= media ? { media: calc, txt: "✅ Aprovado no ano", cor: "#087f5b" } : { media: calc, txt: "⚠️ Média do ano abaixo: fale com o professor sobre a recuperação", cor: "var(--vermelho)" };
   const precisa = (media * periodos - soma) / faltam;
-  if (precisa <= 0) return { media: mediaAtual, txt: "✅ Já garantiu a média!", cor: "#087f5b" };
-  if (precisa > 10) return { media: mediaAtual, txt: `⚠️ Precisaria de mais de 10 em cada ${faltam === 1 ? "período" : "um dos " + faltam + " períodos"} que faltam. Peça ajuda e veja a recuperação.`, cor: "var(--vermelho)" };
-  return { media: mediaAtual, txt: `🎯 Precisa de ${fmt1(precisa)} ${faltam === 1 ? "no próximo período" : `em cada um dos ${faltam} períodos que faltam`}`, cor: precisa >= 8 ? "#b35c00" : "var(--roxo)" };
+  if (precisa <= 0) return { media: mostrada, txt: "✅ Já garantiu a média!", cor: "#087f5b" };
+  if (precisa > 10) return { media: mostrada, txt: `⚠️ Precisaria de mais de 10 em cada ${faltam === 1 ? "período" : "um dos " + faltam + " períodos"} que faltam. Peça ajuda e veja a recuperação.`, cor: "var(--vermelho)" };
+  return { media: mostrada, txt: `🎯 Precisa de ${fmt1(precisa)} ${faltam === 1 ? "no próximo período" : `em cada um dos ${faltam} períodos que faltam`}`, cor: precisa >= 8 ? "#b35c00" : "var(--roxo)" };
+}
+// Tabela do boletim do ano inteiro + média geral
+function tabelaBoletim(d, rot) {
+  const per = d.periodos || 4, media = d.media || 6, ex = d.extras || {};
+  const ms = Object.keys(d.materias || {}).filter((m) => (d.materias[m] || []).some((x) => numNota(x) != null) || numNota((ex[m] || {}).anual) != null || numNota((ex[m] || {}).final) != null);
+  if (!ms.length) return "";
+  const linhas = ms.map((m) => ({ m, s: situacaoNota(d.materias[m], media, per, ex[m]), notas: (d.materias[m] || []).slice(0, per) }));
+  const comMedia = linhas.filter((l) => l.s.media != null);
+  const geral = comMedia.length ? comMedia.reduce((a, l) => a + (l.s.final != null ? Math.max(l.s.final, l.s.media) : l.s.media), 0) / comMedia.length : null;
+  const acima = comMedia.filter((l) => (l.s.final != null ? l.s.final : l.s.media) >= media).length;
+  const cel = "padding:5px 2px;text-align:center;border-top:1px solid var(--linha,#e6e3f0)";
+  const cor = (v) => { const x = numNota(v); return x == null ? "var(--suave)" : x >= media ? "inherit" : "var(--vermelho)"; };
+  return `<div class="card" style="margin-top:10px;padding:12px">
+    <b>📊 Boletim ${d.ano || ""}${d.serie ? " · " + esc(d.serie) : ""}</b>
+    <div style="overflow-x:auto;margin-top:6px"><table style="width:100%;border-collapse:collapse;font-size:12.5px">
+      <tr style="color:var(--suave)"><th style="text-align:left;padding:4px 2px">Matéria</th>${Array.from({ length: per }, (_, i) => `<th>${rot}${i + 1}</th>`).join("")}<th>Média</th><th>Final</th></tr>
+      ${linhas.map((l) => `<tr><td style="${cel};text-align:left;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${iconeMateria(l.m)} ${esc(l.m)}</td>
+        ${Array.from({ length: per }, (_, i) => `<td style="${cel};color:${cor(l.notas[i])}">${numNota(l.notas[i]) != null ? fmt1(numNota(l.notas[i])) : "–"}</td>`).join("")}
+        <td style="${cel};font-weight:800;color:${l.s.media != null && l.s.media < media ? "var(--vermelho)" : "var(--roxo)"}">${l.s.media != null ? fmt1(l.s.media) : "–"}</td>
+        <td style="${cel};color:${cor(l.s.final)}">${l.s.final != null ? fmt1(l.s.final) : "–"}</td></tr>`).join("")}
+    </table></div>
+    ${geral != null ? `<div style="display:flex;justify-content:space-between;margin-top:8px;font-weight:800"><span>Média geral do ano</span><span style="color:${geral >= media ? "#087f5b" : "var(--vermelho)"}">${fmt1(geral)}</span></div>
+    <div class="pequeno">✅ ${acima} de ${comMedia.length} ${comMedia.length === 1 ? "matéria" : "matérias"} na média${comMedia.length - acima ? ` · ⚠️ ${comMedia.length - acima} abaixo` : ""}</div>` : ""}
+  </div>`;
 }
 function abrirNotas() {
   const n = confNotas();
@@ -2265,13 +2299,16 @@ function abrirNotas() {
         <select id="ntPer">${divisoes.map(([q, nome, txt]) => `<option value="${q}|${nome}" ${q === n.periodos && nome === n.nomePer ? "selected" : ""}>${txt}</option>`).join("")}</select></div>
     </div>
     <button class="botao secundario" id="ntFoto" style="margin-top:10px">📷 Fotografar o boletim</button>
-    <p class="pequeno">Ou digite as notas de 0 a 10. Deixe em branco o que ainda não saiu.</p>
+    ${tabelaBoletim(n, rot)}
+    <p class="pequeno">Digite as notas de 0 a 10. Deixe em branco o que ainda não saiu. "Méd" e "Final" são opcionais: use se o boletim mostrar a média do ano ou a recuperação final.</p>
     ${Object.keys(n.materias).map((m) => {
-      const s = situacaoNota(n.materias[m], n.media, n.periodos);
+      const ex = n.extras[m] || {};
+      const s = situacaoNota(n.materias[m], n.media, n.periodos, ex);
       return `<div class="card" style="margin-top:8px">
         <div style="display:flex;justify-content:space-between;align-items:baseline"><b>${iconeMateria(m)} ${esc(m)}</b><span style="font-weight:800;color:${s.cor}">${s.media != null ? fmt1(s.media) : "–"}</span></div>
-        <div style="display:grid;grid-template-columns:repeat(${n.periodos},1fr);gap:6px;margin-top:6px">
-          ${Array.from({ length: n.periodos }, (_, i) => `<input inputmode="decimal" placeholder="${rot}${i + 1}" data-nota="${esc(m)}|${i}" value="${esc(n.materias[m][i] ?? "")}" style="text-align:center;padding:8px;min-width:0;width:100%;box-sizing:border-box">`).join("")}
+        <div style="display:grid;grid-template-columns:repeat(${n.periodos + 2},1fr);gap:5px;margin-top:6px">
+          ${Array.from({ length: n.periodos }, (_, i) => `<input inputmode="decimal" placeholder="${rot}${i + 1}" data-nota="${esc(m)}|${i}" value="${esc(n.materias[m][i] ?? "")}" style="text-align:center;padding:8px 2px;min-width:0;width:100%;box-sizing:border-box">`).join("")}
+          ${["anual", "final"].map((k) => `<input inputmode="decimal" placeholder="${k === "anual" ? "Méd" : "Final"}" data-extra="${esc(m)}|${k}" value="${esc(ex[k] ?? "")}" style="text-align:center;padding:8px 2px;min-width:0;width:100%;box-sizing:border-box;background:var(--fundo2,#f3f0ff)">`).join("")}
         </div>
         <div class="pequeno" style="margin-top:6px;color:${s.cor}">${s.txt}</div>
       </div>`;
@@ -2279,11 +2316,10 @@ function abrirNotas() {
     <div class="linha" style="margin-top:10px"><input id="ntNova" placeholder="Outra matéria (ex.: Espanhol)" maxlength="30"><button class="mini roxo" id="ntAdd" style="flex:0 0 auto">＋ Adicionar</button></div>
     <p class="pequeno">A conta usa média simples. Se sua escola usa peso ou recuperação diferente, use como referência.</p>
     ${antigos.length ? `<b style="display:block;margin-top:14px">📚 Anos anteriores</b>
-      ${antigos.map((a) => { const v = n.anteriores[a]; const ms = Object.keys(v.materias || {}).filter((m) => (v.materias[m] || []).some((x) => numNota(x) != null));
-        return `<div class="card" style="margin-top:8px"><b>${a}${v.serie ? " · " + esc(v.serie) : ""}</b>
-          ${ms.map((m) => { const s = situacaoNota(v.materias[m], v.media || 6, v.periodos || 4); return `<div class="pequeno" style="display:flex;justify-content:space-between;margin-top:4px"><span>${iconeMateria(m)} ${esc(m)}</span><b style="color:${s.cor}">${s.media != null ? fmt1(s.media) : "–"}</b></div>`; }).join("") || `<div class="pequeno">Sem notas.</div>`}
-          <button class="mini" data-apagaano="${a}" style="margin-top:8px">🗑️ Apagar ${a}</button></div>`; }).join("")}` : ""}
-    ${temNotas(n.materias) ? `<button class="botao secundario" id="ntNovoAno" style="margin-top:12px">🆕 Começar novo ano letivo</button>` : ""}`);
+      ${antigos.map((a) => { const v = n.anteriores[a];
+        return `${tabelaBoletim({ ...v, ano: a }, NOMES_PER[v.nomePer] || "B") || `<div class="card" style="margin-top:8px"><b>${a}</b><div class="pequeno">Sem notas.</div></div>`}
+          <button class="mini" data-apagaano="${a}" style="margin-top:6px">🗑️ Apagar ${a}</button>`; }).join("")}` : ""}
+    ${temNotas(n.materias, n.extras) ? `<button class="botao secundario" id="ntNovoAno" style="margin-top:12px">🆕 Começar novo ano letivo</button>` : ""}`);
   $("#ntMedia").onchange = (e) => { n.media = +e.target.value; salvar(); abrirNotas(); };
   $("#ntPer").onchange = (e) => { const [q, nome] = e.target.value.split("|"); n.periodos = +q; n.nomePer = nome; salvar(); abrirNotas(); };
   $("#ntSerie").onchange = (e) => { n.serie = e.target.value.trim().slice(0, 20); salvar(); };
@@ -2307,6 +2343,13 @@ function abrirNotas() {
     n.materias[m][+i] = v ? fmt1(numNota(v)) : "";
     salvar(); abrirNotas();
   });
+  document.querySelectorAll("[data-extra]").forEach((inp) => inp.onchange = () => {
+    const [m, k] = inp.dataset.extra.split("|");
+    const v = inp.value.trim();
+    if (v && numNota(v) == null) { toast("Digite uma nota de 0 a 10."); inp.value = ""; return; }
+    n.extras[m] = { ...(n.extras[m] || {}), [k]: v ? fmt1(numNota(v)) : "" };
+    salvar(); abrirNotas();
+  });
   $("#ntFoto").onclick = () => {
     const inp = $("#arquivoDuvida"); inp.removeAttribute("capture");
     inp.onchange = async (ev) => {
@@ -2318,7 +2361,7 @@ function abrirNotas() {
         parar(); conferirBoletim(r);
       } catch (e) {
         parar();
-        erroIA(e, () => conferirBoletim({ ano: new Date().getFullYear(), serie: "8º ano", periodos: 4, nome_periodo: "unidade", media: 6, materias: [{ materia: "Matemática", notas: [5.5, 6, null, null] }, { materia: "Português", notas: [8, 7.5, null, null] }, { materia: "História", notas: [9, 8.5, null, null] }] }));
+        erroIA(e, () => conferirBoletim({ ano: new Date().getFullYear(), serie: "8º ano", periodos: 4, nome_periodo: "unidade", media: 6, materias: [{ materia: "Matemática", notas: [5.5, 6, 7, 6.5], media_anual: 6.3 }, { materia: "Português", notas: [8, 7.5, null, null] }, { materia: "História", notas: [9, 8.5, null, null] }] }));
       }
     };
     inp.click();
@@ -2328,12 +2371,12 @@ function abrirNotas() {
 
 // Guarda o ano atual em "anteriores" e abre outro ano (trazendo de volta se já existia)
 function trocarAnoNotas(n, novo) {
-  if (temNotas(n.materias) || n.serie) n.anteriores[n.ano] = { serie: n.serie, media: n.media, periodos: n.periodos, nomePer: n.nomePer, materias: n.materias };
+  if (temNotas(n.materias, n.extras) || n.serie) n.anteriores[n.ano] = { serie: n.serie, media: n.media, periodos: n.periodos, nomePer: n.nomePer, materias: n.materias, extras: n.extras };
   const volta = n.anteriores[novo];
   delete n.anteriores[novo];
   n.ano = novo;
-  if (volta) Object.assign(n, { serie: volta.serie || "", media: volta.media || n.media, periodos: volta.periodos || n.periodos, nomePer: volta.nomePer || n.nomePer, materias: volta.materias || {} });
-  else { n.serie = ""; n.materias = {}; confNotas(); }
+  if (volta) Object.assign(n, { serie: volta.serie || "", media: volta.media || n.media, periodos: volta.periodos || n.periodos, nomePer: volta.nomePer || n.nomePer, materias: volta.materias || {}, extras: volta.extras || {} });
+  else { n.serie = ""; n.materias = {}; n.extras = {}; confNotas(); }
 }
 
 // Mostra o que a IA leu do boletim para o aluno conferir antes de salvar
@@ -2343,8 +2386,9 @@ function conferirBoletim(r) {
   const nomeLido = String(r.nome_periodo || "").toLowerCase();
   const nomePer = NOMES_PER[nomeLido] ? nomeLido : (per === 3 ? "trimestre" : "bimestre");
   const lidas = (Array.isArray(r.materias) ? r.materias : []).filter((m) => m && m.materia)
-    .map((m) => ({ materia: String(m.materia).slice(0, 30), notas: Array.from({ length: per }, (_, i) => { const v = notaIA((m.notas || [])[i]); return v == null ? "" : fmt1(v); }) }))
-    .filter((m) => m.notas.some(Boolean)).slice(0, 20);
+    .map((m) => { const f = (x) => { const v = notaIA(x); return v == null ? "" : fmt1(v); };
+      return { materia: String(m.materia).slice(0, 30), notas: Array.from({ length: per }, (_, i) => f((m.notas || [])[i])), anual: f(m.media_anual), final: f(m.final) }; })
+    .filter((m) => m.notas.some(Boolean) || m.anual || m.final).slice(0, 20);
   if (!lidas.length) { toast(r.aviso || "Não consegui ler o boletim. Tente uma foto reta, de perto e com boa luz.", 4500); return; }
   const n = confNotas();
   const anoLido = anoValido(r.ano);
@@ -2364,23 +2408,26 @@ function conferirBoletim(r) {
     ${anoLido ? "" : `<p class="pequeno" style="color:#b35c00">⚠️ Não achei o ano no boletim. Confira se ${anoBol} está certo.</p>`}
     <p class="pequeno">Dividido em ${per} ${nomePer}s.</p>
     ${lidas.map((m, k) => `<div class="card" style="margin-top:8px"><b>${iconeMateria(m.materia)} ${esc(m.materia)}</b>
-      <div style="display:grid;grid-template-columns:repeat(${per},1fr);gap:6px;margin-top:6px">
-        ${m.notas.map((v, i) => `<input inputmode="decimal" placeholder="${rot}${i + 1}" data-bol="${k}|${i}" value="${esc(v)}" style="text-align:center;padding:8px;min-width:0;width:100%;box-sizing:border-box">`).join("")}
+      <div style="display:grid;grid-template-columns:repeat(${per + 2},1fr);gap:5px;margin-top:6px">
+        ${m.notas.map((v, i) => `<input inputmode="decimal" placeholder="${rot}${i + 1}" data-bol="${k}|${i}" value="${esc(v)}" style="text-align:center;padding:8px 2px;min-width:0;width:100%;box-sizing:border-box">`).join("")}
+        ${["anual", "final"].map((x) => `<input inputmode="decimal" placeholder="${x === "anual" ? "Méd" : "Final"}" data-bolx="${k}|${x}" value="${esc(m[x])}" style="text-align:center;padding:8px 2px;min-width:0;width:100%;box-sizing:border-box;background:var(--fundo2,#f3f0ff)">`).join("")}
       </div></div>`).join("")}
+    <p class="pequeno">"Méd" = média do ano e "Final" = recuperação/prova final, quando o boletim mostra.</p>
     <div style="height:12px"></div>
     <button class="botao primario" id="bolSalvar">Salvar notas</button>`);
   $("#bolSalvar").onclick = () => {
     document.querySelectorAll("[data-bol]").forEach((inp) => { const [k, i] = inp.dataset.bol.split("|").map(Number); const v = numNota(inp.value.trim()); lidas[k].notas[i] = v == null ? "" : fmt1(v); });
+    document.querySelectorAll("[data-bolx]").forEach((inp) => { const [k, x] = inp.dataset.bolx.split("|"); const v = numNota(inp.value.trim()); lidas[+k][x] = v == null ? "" : fmt1(v); });
     const ano = +$("#bolAno").value;
     const serie = $("#bolSerie").value.trim().slice(0, 20);
     let msg = "";
     if (ano !== n.ano) {
-      if (ano < n.ano && temNotas(n.materias)) {
+      if (ano < n.ano && temNotas(n.materias, n.extras)) {
         // boletim de um ano que já passou: guarda em "Anos anteriores" sem mexer no ano atual
         const antes = n.anteriores[ano] || { materias: {} };
-        const mats = { ...(antes.materias || {}) };
-        for (const m of lidas) mats[m.materia] = m.notas;
-        n.anteriores[ano] = { serie: serie || antes.serie || "", media: [5, 6, 7].includes(Math.round(Number(r.media))) ? Math.round(Number(r.media)) : (antes.media || n.media), periodos: per, nomePer, materias: mats };
+        const mats = { ...(antes.materias || {}) }, exs = { ...(antes.extras || {}) };
+        for (const m of lidas) { mats[m.materia] = m.notas; exs[m.materia] = { anual: m.anual, final: m.final }; }
+        n.anteriores[ano] = { serie: serie || antes.serie || "", media: [5, 6, 7].includes(Math.round(Number(r.media))) ? Math.round(Number(r.media)) : (antes.media || n.media), periodos: per, nomePer, materias: mats, extras: exs };
         salvar(); toast(`📚 Notas de ${ano} guardadas em "Anos anteriores"`, 4000); abrirNotas(); return;
       }
       trocarAnoNotas(n, ano);
@@ -2389,7 +2436,7 @@ function conferirBoletim(r) {
     n.periodos = per; n.nomePer = nomePer;
     if (serie) n.serie = serie;
     if ([5, 6, 7].includes(Math.round(Number(r.media)))) n.media = Math.round(Number(r.media));
-    for (const m of lidas) n.materias[m.materia] = m.notas;
+    for (const m of lidas) { n.materias[m.materia] = m.notas; n.extras[m.materia] = { anual: m.anual, final: m.final }; }
     salvar(); toast(`📒 Notas de ${lidas.length} ${lidas.length === 1 ? "matéria salvas" : "matérias salvas"}${msg}`); abrirNotas();
   };
 }
