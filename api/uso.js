@@ -3,7 +3,7 @@
 
 const { inserir } = require("./_supabase");
 
-const EVENTOS = ["abriu", "agenda", "horario", "estudo", "mapa", "banco", "enem", "simulado_fim", "flashcards_fim", "instalou", "duvida", "redacao", "foco"];
+const EVENTOS = ["abriu", "agenda", "horario", "estudo", "mapa", "banco", "enem", "simulado_fim", "flashcards_fim", "instalou", "duvida", "redacao", "foco", "revisao", "relampago", "familia", "ouvir"];
 
 function limpar(v, max) {
   return String(v ?? "").replace(/\s+/g, " ").trim().slice(0, max);

@@ -400,9 +400,11 @@ function abrirModal(html) {
   document.body.style.overflow = "hidden";
 }
 function fecharModal() {
+  pararVoz();
   $("#camadaModal").innerHTML = ""; document.body.style.overflow = "";
   // atualiza o "Hoje" (ex.: depois de estudar, o % de pronto muda)
   if (!$("#telaAgenda").classList.contains("oculto")) try { renderHoje(); } catch (e) {}
+  if ($("#telaMais") && !$("#telaMais").classList.contains("oculto")) try { renderMais(); } catch (e) {}
 }
 
 /* ============================================================
@@ -505,7 +507,7 @@ $("#listaTarefas").addEventListener("click", (ev) => {
   const t = estado.tarefas.find((x) => x.id === id); if (!t) return;
   const acao = b.dataset.acao;
   if (acao === "feito") {
-    t.feito = !t.feito; salvar(); renderAgenda();
+    t.feito = !t.feito; t.feitoEm = t.feito ? hojeISO() : null; salvar(); renderAgenda();
     if (t.feito) toast(t.tipo === "prova" ? "Prova feita! Boa sorte no resultado 🍀" : "Mandou bem! ✅");
   }
   if (acao === "lembrete") baixarLembrete(t);
@@ -817,16 +819,19 @@ function abrirMaterial(id, aba = "resumo") {
 }
 
 function mostrarAba(m, aba) {
+  pararVoz();
   document.querySelectorAll("[data-aba]").forEach((b) => b.classList.toggle("ativo", b.dataset.aba === aba));
   const c = $("#conteudoAba");
   if (aba === "resumo") {
     if (!m.resumoVisto && m.resumo.length) { m.resumoVisto = true; salvar(); }
     c.innerHTML = m.resumo.length
-      ? `<div class="card"><ol class="resumo">${m.resumo.map((r) => `<li>${esc(r)}</li>`).join("")}</ol></div>
+      ? `${vozSuportada() ? `<button class="mini roxo" id="ouvirResumo" style="margin-bottom:8px">🔊 Ouvir o resumo</button>` : ""}
+         <div class="card"><ol class="resumo">${m.resumo.map((r) => `<li>${esc(r)}</li>`).join("")}</ol></div>
          <div style="height:12px"></div><button class="botao secundario" id="irMapa">${m.banco ? "Resolver as questões →" : "Ver o mapa mental →"}</button>
          ${blocoCurtiu(m)}`
       : `<p class="vazio">Sem resumo neste material.</p>`;
     const b = $("#irMapa"); if (b) b.onclick = () => mostrarAba(m, m.banco ? "quiz" : "mapa");
+    const ov = $("#ouvirResumo"); if (ov) ov.onclick = () => alternarVoz([m.titulo, ...m.resumo], ov, "🔊 Ouvir o resumo");
     ligarCurtiu(m);
   }
   if (aba === "mapa") rodarMapa(m, c);
@@ -1850,7 +1855,8 @@ function rodarQuiz(m, c) {
       m.quizErros = respostas.map((ok, i) => (ok ? null : i)).filter((i) => i !== null);
       salvar();
       enviarResultadoTurma(m, nota, respostas);
-      registrarUso("simulado_fim", `${m.banco ? "questoes" : "caderno"} ${nota}%`);
+      if (!m.relampago) registrarUso("simulado_fim", `${m.banco ? "questoes" : "caderno"} ${nota}%`);
+      if (m.relampago) { m.aoTerminar(respostas, nota); return; }
       const recorde = m.melhorNota == null || nota > m.melhorNota;
       if (recorde) { m.melhorNota = nota; salvar(); }
       const frase = nota >= 90 ? "Pronto pra prova! 🏆" : nota >= 70 ? "Muito bom! Revise os erros e vai com tudo 💪" : nota >= 50 ? "Tá no caminho. Revê os flashcards e tenta de novo 📚" : "Calma, estudar é isso mesmo. Lê o resumo e tenta de novo 🙂";
@@ -2099,6 +2105,12 @@ function renderHoje() {
     else if (hoje && hoje.blocos.length) html += `<div class="card pequeno" style="margin-top:10px">✅ Você fez todos os blocos de estudo de hoje. Mandou bem!</div>`;
   }
 
+  // revisão do dia (repetição espaçada)
+  const rv = filaRevisao();
+  if (rv.total) html += `<div class="card" style="margin-top:10px;display:flex;gap:10px;align-items:center">
+      <div style="flex:1"><b>🧠 Revisão do dia</b><div class="pequeno">${rv.total} ${rv.total === 1 ? "cartão" : "cartões"} para não esquecer · uns 5 minutos</div></div>
+      <button class="mini roxo" data-hoje="${acao(abrirRevisao)}">Revisar</button></div>`;
+
   // depois das 17h: lembrar de arrumar a mochila de amanhã
   if (new Date().getHours() >= 17 && estado.rotina) {
     const mo = itensMochila();
@@ -2117,7 +2129,13 @@ function ligarHoje() {
 /* ============================================================
    ABA "MAIS": modo foco, notas, redação, mochila e conquistas
    ============================================================ */
-function contar(nome, n = 1) { estado.contadores = estado.contadores || {}; estado.contadores[nome] = (estado.contadores[nome] || 0) + n; }
+function contar(nome, n = 1) {
+  estado.contadores = estado.contadores || {}; estado.contadores[nome] = (estado.contadores[nome] || 0) + n;
+  // registro por dia (só números), para o resumo da semana
+  const d = estado.diario = estado.diario || {}; const h = hojeISO();
+  d[h] = d[h] || {}; d[h][nome] = (d[h][nome] || 0) + n;
+  const dias = Object.keys(d).sort(); while (dias.length > 45) delete d[dias.shift()];
+}
 
 function renderMais() {
   const item = (id, ic, t, d) => `<button class="card" id="${id}" style="text-align:left;display:flex;gap:12px;align-items:center;width:100%"><span style="font-size:28px">${ic}</span><span style="flex:1"><b>${t}</b><br><span class="pequeno">${d}</span></span><span style="color:var(--suave)">›</span></button>`;
@@ -2126,9 +2144,12 @@ function renderMais() {
   $("#conteudoMais").innerHTML = `
     <div class="hero">
       <div class="titulo">Mais ferramentas.</div>
-      <p>Foco para estudar, suas notas, correção de redação e a mochila de amanhã.</p>
+      <p>Revisão rápida, foco, notas, redação e a mochila de amanhã.</p>
     </div>
     <div class="lista" style="margin-top:12px">
+      ${item("mRevisao", "🧠", "Revisão do dia", (() => { const r = filaRevisao(); return r.total ? `${r.total} ${r.total === 1 ? "cartão" : "cartões"} para hoje · 5 minutinhos` : estado.materiais.some((m) => !m.banco && m.flashcards.length) ? "Tudo revisado por hoje ✓" : "Cartões de todos os materiais, no tempo certo"; })())}
+      ${item("mRelampago", "⚡", "Quiz relâmpago", "5 perguntas misturadas dos seus simulados")}
+      ${item("mFamilia", "👨‍👩‍👧", "Resumo da semana", "Mande para a família pelo WhatsApp")}
       ${item("mFoco", "⏱️", "Modo foco", `25 min estudando + 5 de pausa${c.focos ? ` · ${c.focos} ${c.focos === 1 ? "sessão feita" : "sessões feitas"}` : ""}`)}
       ${item("mNotas", "📒", "Minhas notas", "Média por matéria e quanto você precisa tirar")}
       ${item("mRedacao", "✍️", "Corrigir redação", "Nota estilo ENEM ou da escola, com dicas")}
@@ -2138,6 +2159,9 @@ function renderMais() {
       ${item("mConta", "⚙️", "Conta, turma e avisos", "Código de recuperação, turma e notificações")}
     </div>`;
   $("#mFoco").onclick = () => abrirFoco();
+  $("#mRevisao").onclick = abrirRevisao;
+  $("#mRelampago").onclick = abrirRelampago;
+  $("#mFamilia").onclick = abrirResumoFamilia;
   $("#mNotas").onclick = abrirNotas;
   $("#mRedacao").onclick = abrirRedacao;
   $("#mMochila").onclick = abrirMochila;
@@ -2600,6 +2624,210 @@ function abrirMochila() {
   });
 }
 
+/* ============================================================
+   🔊 OUVIR (voz do próprio celular, grátis e sem internet)
+   ============================================================ */
+let vozBotao = null;
+function vozSuportada() { return "speechSynthesis" in window && "SpeechSynthesisUtterance" in window; }
+function pararVoz() {
+  try { if (vozSuportada()) speechSynthesis.cancel(); } catch (e) {}
+  if (vozBotao) { vozBotao.textContent = vozBotao.dataset.rotulo; vozBotao = null; }
+}
+function alternarVoz(textos, botao, rotulo) {
+  if (vozBotao === botao) { pararVoz(); return; }
+  pararVoz();
+  const vozes = speechSynthesis.getVoices();
+  const voz = vozes.find((v) => /pt[-_]BR/i.test(v.lang)) || vozes.find((v) => /^pt/i.test(v.lang));
+  const partes = textos.map((t) => String(t || "").trim()).filter(Boolean);
+  if (!partes.length) return;
+  botao.dataset.rotulo = rotulo; botao.textContent = "⏹️ Parar"; vozBotao = botao;
+  partes.forEach((t, i) => {
+    const u = new SpeechSynthesisUtterance(t);
+    u.lang = "pt-BR"; if (voz) u.voice = voz; u.rate = 1;
+    if (i === partes.length - 1) u.onend = () => { if (vozBotao === botao) pararVoz(); };
+    speechSynthesis.speak(u);
+  });
+  registrarUso("ouvir");
+}
+
+/* ============================================================
+   🧠 REVISÃO DO DIA — repetição espaçada (caixas de Leitner)
+   Cartão certo vai para a próxima caixa e volta depois de 1, 3, 7, 14 ou 30 dias.
+   Cartão errado volta para a caixa 1 e aparece amanhã.
+   ============================================================ */
+const CAIXAS_DIAS = [0, 1, 3, 7, 14, 30];
+const NOVOS_POR_DIA = 10, MAX_REVISAO = 25;
+function filaRevisao() {
+  const srs = estado.srs || {}, hoje = hojeISO();
+  const vencidos = [], novos = [];
+  for (const m of estado.materiais) {
+    if (m.banco || !m.flashcards || !m.flashcards.length) continue;
+    m.flashcards.forEach((_, i) => {
+      const k = m.id + ":" + i, s = srs[k];
+      if (s) { if (s.p <= hoje) vencidos.push({ m, i, k, c: s.c }); }
+      else if ((m.erros || []).includes(i)) vencidos.push({ m, i, k, c: 0 });
+      else if (m.cardsFeitos) novos.push({ m, i, k, c: 0 });
+    });
+  }
+  vencidos.sort((a, b) => a.c - b.c);
+  const jaNovosHoje = ((estado.diario || {})[hoje] || {}).novosSrs || 0;
+  const lista = [...vencidos.slice(0, MAX_REVISAO), ...novos.slice(0, Math.max(0, Math.min(NOVOS_POR_DIA - jaNovosHoje, MAX_REVISAO - vencidos.length)))];
+  return { lista, total: lista.length };
+}
+function marcarRevisao(item, sabia) {
+  estado.srs = estado.srs || {};
+  const novo = !estado.srs[item.k];
+  const c = sabia ? Math.min(5, (estado.srs[item.k] ? estado.srs[item.k].c : 0) + 1) : 1;
+  estado.srs[item.k] = { c, p: somaDias(sabia ? CAIXAS_DIAS[c] : 1) };
+  if (novo) contar("novosSrs");
+  const m = item.m;
+  if (sabia) m.erros = (m.erros || []).filter((x) => x !== item.i);
+  else m.erros = [...new Set([...(m.erros || []), item.i])];
+}
+function abrirRevisao() {
+  const { lista } = filaRevisao();
+  if (!lista.length) {
+    const tem = estado.materiais.some((m) => !m.banco && m.flashcards.length);
+    abrirModal(`<div class="topo"><b>Revisão do dia 🧠</b><button class="fechar" data-fechar>✕</button></div>
+      <div class="card placar"><div class="n">${tem ? "✓" : "🃏"}</div><p>${tem ? "Tudo revisado por hoje! Volte amanhã: os cartões aparecem no dia certo para você não esquecer." : "Crie um material do caderno e faça os flashcards uma vez. Depois eles aparecem aqui no tempo certo."}</p></div>
+      <div style="height:12px"></div><button class="botao secundario" data-fechar>Fechar</button>`);
+    return;
+  }
+  for (let i = lista.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [lista[i], lista[j]] = [lista[j], lista[i]]; }
+  let pos = 0, certos = 0;
+  abrirModal(`<div class="topo"><b>Revisão do dia 🧠</b><button class="fechar" data-fechar>✕</button></div><div id="rvArea"></div>`);
+  const c = $("#rvArea");
+  const passo = () => {
+    if (pos >= lista.length) {
+      contar("revisoes"); salvar(); registrarUso("revisao", `${certos}/${lista.length}`);
+      const amanha = Object.values(estado.srs || {}).filter((s) => s.p === somaDias(1)).length;
+      c.innerHTML = `<div class="card placar"><div class="n">${certos}/${lista.length}</div>
+        <p>${certos === lista.length ? "Lembrou de tudo! 🎉" : "Os que você errou voltam amanhã. É assim que a memória fixa 💪"}</p>
+        <p class="pequeno">${amanha ? `Amanhã: ${amanha} ${amanha === 1 ? "cartão" : "cartões"}.` : ""} Cada acerto faz o cartão voltar mais tarde: 1, 3, 7, 14 e 30 dias.</p></div>
+        <div style="height:12px"></div><button class="botao primario" data-fechar>Fechar</button>`;
+      return;
+    }
+    const it = lista[pos], card = it.m.flashcards[it.i];
+    c.innerHTML = `
+      <div class="pequeno">${iconeMateria(it.m.materia)} ${esc(it.m.titulo)} · ${pos + 1} de ${lista.length}</div>
+      <div class="progresso"><div style="width:${(pos / lista.length) * 100}%"></div></div>
+      <div class="flash" id="flash"><div class="in">
+        <div class="lado frente">${esc(card.frente)}<small>toque para virar</small></div>
+        <div class="lado verso">${esc(card.verso)}</div>
+      </div></div>
+      <div class="linha" id="fBotoes" style="visibility:hidden">
+        <button class="botao" style="background:var(--vermelho-claro);color:var(--vermelho)" id="fErrei">😕 Esqueci</button>
+        <button class="botao" style="background:var(--verde-claro);color:#087f5b" id="fSabia">😎 Lembrei</button>
+      </div>`;
+    $("#flash").onclick = () => { $("#flash").classList.toggle("virado"); $("#fBotoes").style.visibility = "visible"; };
+    $("#fErrei").onclick = () => { marcarRevisao(it, false); salvarLocal(); pos++; passo(); };
+    $("#fSabia").onclick = () => { marcarRevisao(it, true); certos++; salvarLocal(); pos++; passo(); };
+  };
+  passo();
+}
+
+/* ============================================================
+   ⚡ QUIZ RELÂMPAGO — 5 perguntas misturadas de todos os simulados
+   (as que o aluno errou aparecem com mais chance)
+   ============================================================ */
+function abrirRelampago() {
+  const todas = [];
+  for (const m of estado.materiais) {
+    if (!m.quiz || !m.quiz.length || m.banco === "duvida") continue;
+    m.quiz.forEach((q, i) => { if (q && q.opcoes && q.opcoes.length && !(q.opcoesImg && q.opcoesImg.some(Boolean))) todas.push({ m, i, q, peso: (m.quizErros || []).includes(i) ? 3 : 1 }); });
+  }
+  if (todas.length < 3) {
+    abrirModal(`<div class="topo"><b>Quiz relâmpago ⚡</b><button class="fechar" data-fechar>✕</button></div>
+      <div class="card placar"><div class="n">⚡</div><p>Crie pelo menos um material do caderno (aba Estudar) ou faça um simulado do ENEM. Depois eu misturo as perguntas aqui.</p></div>
+      <div style="height:12px"></div><button class="botao secundario" data-fechar>Fechar</button>`);
+    return;
+  }
+  const escolhidas = [], resto = [...todas];
+  while (escolhidas.length < 5 && resto.length) {
+    const soma = resto.reduce((a, x) => a + x.peso, 0); let r = Math.random() * soma, k = 0;
+    while (r > resto[k].peso) { r -= resto[k].peso; k++; }
+    escolhidas.push(resto.splice(k, 1)[0]);
+  }
+  const virtual = {
+    id: "relampago", titulo: "Quiz relâmpago", relampago: true, resumo: [], flashcards: [],
+    quiz: escolhidas.map((x) => ({ ...x.q, fonte: `${iconeMateria(x.m.materia)} ${x.m.materia || x.m.titulo}`.slice(0, 60) })),
+    aoTerminar: (respostas, nota) => {
+      escolhidas.forEach((x, i) => {
+        const set = new Set(x.m.quizErros || []);
+        if (respostas[i]) set.delete(x.i); else set.add(x.i);
+        x.m.quizErros = [...set];
+      });
+      contar("relampagos"); salvar(); registrarUso("relampago", `${nota}%`);
+      $("#rlArea").innerHTML = `<div class="card placar"><div class="n">${nota}%</div><p><b>${respostas.filter(Boolean).length} de ${escolhidas.length}</b> certas</p>
+        <p>${nota >= 80 ? "Rápido e certeiro! ⚡" : "As que você errou voltam com mais chance no próximo relâmpago 😉"}</p></div>
+        <div style="height:12px"></div><button class="botao primario" id="rlDeNovo">⚡ Outro relâmpago</button>
+        <div style="height:8px"></div><button class="botao secundario" data-fechar>Fechar</button>`;
+      $("#rlDeNovo").onclick = abrirRelampago;
+    },
+  };
+  abrirModal(`<div class="topo"><b>Quiz relâmpago ⚡</b><button class="fechar" data-fechar>✕</button></div><div id="rlArea"></div>`);
+  rodarQuiz(virtual, $("#rlArea"));
+}
+
+/* ============================================================
+   👨‍👩‍👧 RESUMO DA SEMANA PARA A FAMÍLIA (sem nome, só números)
+   ============================================================ */
+function textoResumoFamilia() {
+  const hoje = hojeISO(), ini = somaDias(-6);
+  const dm = (iso) => { const d = new Date(iso + "T12:00:00"); return `${DIAS_SEM[d.getDay()].slice(0, 3)} ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`; };
+  const linhas = [`📚 *Minha semana no EstudAÍ* (${dm(ini)} a ${dm(hoje)})`, ""];
+  const prox = estado.tarefas.filter((t) => !t.feito && t.data && diasAte(t.data) >= 0 && diasAte(t.data) <= 14 && t.tipo !== "dever")
+    .sort((a, b) => a.data.localeCompare(b.data)).slice(0, 6);
+  linhas.push("📅 *Próximas provas e trabalhos*");
+  if (prox.length) for (const t of prox) {
+    const pr = t.tipo === "prova" ? ` · ${prontidao(t).pct}% pronto` : "";
+    linhas.push(`• ${dm(t.data)}: ${TIPOS[t.tipo] || "Atividade"}${t.materia ? " de " + t.materia : ""}${t.titulo ? " (" + String(t.titulo).slice(0, 50) + ")" : ""}${pr}`);
+  } else linhas.push("• Nada marcado para as próximas 2 semanas");
+  linhas.push("");
+  const soma = (nome) => Object.entries(estado.diario || {}).filter(([d]) => d >= ini && d <= hoje).reduce((a, [, v]) => a + (v[nome] || 0), 0);
+  const feitas = estado.tarefas.filter((t) => t.feito && t.feitoEm && t.feitoEm >= ini).length;
+  const minFoco = soma("minutosFoco"), rev = soma("revisoes"), rel = soma("relampagos"), duv = soma("duvidas");
+  linhas.push("✅ *O que fiz nos últimos 7 dias*");
+  const fez = [];
+  if (feitas) fez.push(`• ${feitas} ${feitas === 1 ? "atividade concluída" : "atividades concluídas"}`);
+  if (minFoco) fez.push(`• ${minFoco >= 60 ? Math.floor(minFoco / 60) + "h" + (minFoco % 60 ? String(minFoco % 60).padStart(2, "0") : "") : minFoco + " min"} estudando no modo foco`);
+  if (rev) fez.push(`• ${rev} ${rev === 1 ? "revisão" : "revisões"} do dia`);
+  if (rel) fez.push(`• ${rel} ${rel === 1 ? "quiz relâmpago" : "quizzes relâmpago"}`);
+  if (duv) fez.push(`• ${duv} ${duv === 1 ? "dúvida tirada" : "dúvidas tiradas"}`);
+  linhas.push(...(fez.length ? fez : ["• Semana mais tranquila por aqui"]));
+  const n = estado.notas;
+  if (n && temNotas(n.materias, n.extras)) {
+    const ms = Object.keys(n.materias).map((m) => ({ m, s: situacaoNota(n.materias[m], n.media || 6, n.periodos || 4, (n.extras || {})[m]) })).filter((x) => x.s.media != null);
+    if (ms.length) {
+      const geral = ms.reduce((a, x) => a + (x.s.final != null ? Math.max(x.s.final, x.s.media) : x.s.media), 0) / ms.length;
+      const abaixo = ms.filter((x) => (x.s.final != null ? x.s.final : x.s.media) < (n.media || 6)).map((x) => x.m);
+      linhas.push("", "📒 *Notas*", `• Média geral: ${fmt1(geral)}`);
+      if (abaixo.length) linhas.push(`• Preciso de atenção em: ${abaixo.join(", ")}`);
+    }
+  }
+  linhas.push("", "Enviado pelo app EstudAÍ 💜");
+  return linhas.join("\n");
+}
+function abrirResumoFamilia() {
+  const texto = textoResumoFamilia();
+  abrirModal(`
+    <div class="topo"><b>Resumo da semana 👨‍👩‍👧</b><button class="fechar" data-fechar>✕</button></div>
+    <p class="pequeno" style="margin-top:0">Mostre para a família como foi sua semana. Não vai seu nome nem nada pessoal, só o resumo abaixo.</p>
+    <div class="card" style="white-space:pre-wrap;font-size:14px;line-height:1.45">${esc(texto).replace(/\*([^*\n]+)\*/g, "<b>$1</b>")}</div>
+    <div style="height:12px"></div>
+    <button class="botao primario" id="rfZap">💬 Mandar pelo WhatsApp</button>
+    <div style="height:8px"></div>
+    <button class="botao secundario" id="rfCopiar">📋 Copiar texto</button>`);
+  $("#rfZap").onclick = async () => {
+    contar("resumosFamilia"); salvar(); registrarUso("familia");
+    if (navigator.share) { try { await navigator.share({ text: texto }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
+    location.href = "https://wa.me/?text=" + encodeURIComponent(texto);
+  };
+  $("#rfCopiar").onclick = async () => {
+    try { await navigator.clipboard.writeText(texto); toast("📋 Copiado! É só colar no WhatsApp."); } catch (e) { toast("Não consegui copiar. Segure no texto para copiar."); }
+  };
+}
+
 /* ---------- 🏅 conquistas (sem sequência de dias, sem pressão) ---------- */
 const CONQUISTAS = [
   { id: "foto", ic: "📷", nome: "Primeira anotação", desc: "Anotar a primeira prova ou trabalho", meta: 1, v: () => estado.tarefas.length },
@@ -2613,6 +2841,8 @@ const CONQUISTAS = [
   { id: "redacao", ic: "✍️", nome: "Redator", desc: "Corrigir 3 redações", meta: 3, v: () => (estado.contadores || {}).redacoes || 0 },
   { id: "crono", ic: "⏰", nome: "Organizado", desc: "Montar o cronograma", meta: 1, v: () => (estado.rotina ? 1 : 0) },
   { id: "turma", ic: "👥", nome: "Em equipe", desc: "Entrar ou criar uma turma", meta: 1, v: () => (estado.turma ? 1 : 0) },
+  { id: "revisao", ic: "🧠", nome: "Memória afiada", desc: "Fazer 5 revisões do dia", meta: 5, v: () => (estado.contadores || {}).revisoes || 0 },
+  { id: "relampago", ic: "⚡", nome: "Relâmpago", desc: "Fazer 3 quizzes relâmpago", meta: 3, v: () => (estado.contadores || {}).relampagos || 0 },
   { id: "enem", ic: "🎓", nome: "Rumo ao ENEM", desc: "Fazer um simulado do ENEM ou de olimpíada", meta: 1, v: () => estado.materiais.filter((m) => (m.banco === "enem" || m.banco === "olimpiada") && m.melhorNota != null).length },
 ];
 function calcularConquistas() { return CONQUISTAS.map((c) => { const v = Math.min(c.meta, c.v() || 0); return { ...c, atual: v, ok: v >= c.meta }; }); }
