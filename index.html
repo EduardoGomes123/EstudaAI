@@ -149,7 +149,7 @@
   <header>
     <div class="logo">📚 <div>Estuda<span>í</span></div></div>
     <div class="topo-dir">
-      <button class="mini roxo" id="btnFeedback">💬 Opinar</button>
+      <div style="display:flex;gap:6px"><button class="mini roxo" id="btnFeedback">💬 Opinar</button><button class="mini" id="btnConta" aria-label="Minha conta, turma e avisos">⚙️</button></div>
       <div class="data-hoje" id="dataHoje"></div>
     </div>
   </header>
@@ -296,10 +296,11 @@ function carregar() {
   return { tarefas: [], materiais: [], rotina: null, feitosCrono: {} };
 }
 let estado = carregar();
-function salvar() {
+function salvarLocal() {
   try { localStorage.setItem(CHAVE, JSON.stringify(estado)); }
   catch (e) { toast("Não consegui salvar no aparelho. A memória pode estar cheia."); }
 }
+function salvar() { salvarLocal(); if (typeof agendarBackup === "function") agendarBackup(); }
 const novoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 /* ---------- utilidades ---------- */
@@ -463,11 +464,13 @@ function cardTarefa(t) {
         <span class="tag ${t.tipo}">${TIPOS[t.tipo] || "Outro"}</span>
         ${t.materia ? `<span>${esc(t.materia)}</span> ·` : ""}
         <span class="quando ${urg ? "urgente" : ""}">${textoQuando(t.data)}</span>
+        ${t.origem ? `<span class="tag" title="Veio da turma ou foi enviada para ela">👥 Turma</span>` : ""}
       </div>
       ${t.detalhes ? `<div class="det">${esc(t.detalhes)}</div>` : ""}
       ${t.feito ? "" : `<div class="acoes">
         ${podeEstudar ? `<button class="mini roxo" data-acao="estudar">${temMaterial ? "🧠 Revisar" : "🧠 Estudar pra isso"}</button>` : ""}
         ${t.data ? `<button class="mini" data-acao="lembrete">⏰ Lembrete</button>` : ""}
+        ${estado.turma && estado.turma.segredo && !t.origem ? `<button class="mini" data-acao="publicar">📤 Turma</button>` : ""}
         <button class="mini" data-acao="editar">✏️</button>
       </div>`}
     </div>
@@ -486,6 +489,7 @@ $("#listaTarefas").addEventListener("click", (ev) => {
   if (acao === "lembrete") baixarLembrete(t);
   if (acao === "editar") editarTarefa(t);
   if (acao === "estudar") estudarTarefa(t);
+  if (acao === "publicar") publicarNaTurma([t]).then((ok) => ok && renderAgenda());
 });
 
 function estudarTarefa(t) {
@@ -542,6 +546,7 @@ function mostrarSugestoes(lista, demo = false) {
           </div>`).join("")}
       </div>
       <datalist id="listaMaterias">${MATERIAS.map((m) => `<option value="${m}">`).join("")}</datalist>
+      ${!demo && estado.turma && estado.turma.segredo ? `<label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-weight:700"><input type="checkbox" id="sugTurma" checked style="width:auto"> 📤 Enviar também para a turma ${esc(estado.turma.nome)}</label>` : ""}
       <div style="height:12px"></div>
       <button class="botao primario" id="btnSalvarSug">Salvar na agenda</button>`);
     document.querySelectorAll("[data-campo]").forEach((el) => {
@@ -553,12 +558,17 @@ function mostrarSugestoes(lista, demo = false) {
     $("#btnSalvarSug").onclick = () => {
       const escolhidos = itens.filter((t) => t._ok);
       if (!escolhidos.length) { fecharModal(); return; }
+      const paraTurma = !!($("#sugTurma") && $("#sugTurma").checked);
+      const salvas = [];
       for (const t of escolhidos) {
         const { _ok, ...resto } = t;
-        estado.tarefas.push({ ...resto, id: novoId(), feito: false, criado: Date.now() });
+        const nova = { ...resto, id: novoId(), feito: false, criado: Date.now() };
+        estado.tarefas.push(nova); salvas.push(nova);
       }
       salvar(); fecharModal(); renderAgenda();
       toast(`${escolhidos.length} ${escolhidos.length === 1 ? "atividade salva" : "atividades salvas"} na agenda ✅`);
+      if (paraTurma) publicarNaTurma(salvas).then(() => renderAgenda());
+      if (!demo) setTimeout(perguntarAvisos, 1500);
     };
   };
   desenhar();
@@ -594,8 +604,11 @@ function editarTarefa(t) {
     salvar(); fecharModal(); renderAgenda(); toast("Salvo ✅");
   };
   if (!novo) $("#fExcluir").onclick = () => {
-    if (!confirm("Excluir esta atividade?")) return;
+    const prof = t.origem && estado.turma && estado.turma.segredo;
+    if (!confirm(prof ? "Excluir esta atividade? Ela também sai da agenda da turma." : "Excluir esta atividade?")) return;
     estado.tarefas = estado.tarefas.filter((y) => y.id !== t.id);
+    if (t.origem) estado.turmaIgnoradas = [...new Set([...(estado.turmaIgnoradas || []), t.origem])].slice(-300);
+    if (prof) rpc("estudai_turma_remover", { p_codigo: estado.turma.codigo, p_segredo: estado.turma.segredo, p_id: t.origem }).catch(() => toast("Não consegui tirar da turma agora."));
     salvar(); fecharModal(); renderAgenda();
   };
 }
@@ -1111,6 +1124,340 @@ async function rodarMapa(m, c) {
   };
   $("#mRefazer").onclick = () => { m.mapa = null; salvar(); rodarMapa(m, c); };
 }
+
+/* ============================================================
+   CONTA (código de recuperação), TURMA e AVISOS — tudo no Supabase
+   ============================================================ */
+const SB_URL = "https://loctvfuyenyahhcfmmhm.supabase.co";
+const SB_CHAVE = "sb_publishable_xEGNKeEvBe2dpDWUhT5Hww_lG33NAQt"; // chave pública: só chama as funções do Estudaí
+const VAPID_PUBLICO = "BHMg5Lrve7yRBlzfV19nHoB2KEQFWRyjS0Oul33FY63j-38ZMO2BH8pggImf4sref-4lmQZI4TH2Wn3vLoN3-9I";
+var ONLINE_DE_VERDADE = location.protocol === "https:"; // var: pode ser lido antes desta linha rodar
+
+async function rpc(fn, args) {
+  let r;
+  try {
+    r = await fetch(`${SB_URL}/rest/v1/rpc/${fn}`, { method: "POST", headers: { apikey: SB_CHAVE, "content-type": "application/json" }, body: JSON.stringify(args) });
+  } catch (e) { throw new Error("Sem conexão com a internet."); }
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error((j && j.message) || `Erro ${r.status}`);
+  return j;
+}
+
+/* ---------- código de recuperação + backup automático ---------- */
+function gerarCodigo() {
+  const A = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  const b = crypto.getRandomValues(new Uint8Array(12));
+  let s = "";
+  b.forEach((x, i) => { s += A[x % 31]; if (i === 3 || i === 7) s += "-"; });
+  return s;
+}
+function formatarCodigo(c) {
+  const s = String(c || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return s.match(/.{1,4}/g)?.join("-") || "";
+}
+function contaCodigo() {
+  if (!estado.conta || !estado.conta.codigo) { estado.conta = { codigo: gerarCodigo() }; salvarLocal(); }
+  return estado.conta.codigo;
+}
+function dadosBackup() {
+  const { feedbacksPendentes, ...resto } = estado;
+  return resto;
+}
+let timerBackup = null;
+function agendarBackup() {
+  if (!ONLINE_DE_VERDADE) return;
+  clearTimeout(timerBackup);
+  timerBackup = setTimeout(() => fazerBackup().catch(() => {}), 4000);
+}
+async function fazerBackup() {
+  if (!ONLINE_DE_VERDADE || !navigator.onLine) throw new Error("Sem conexão com a internet.");
+  clearTimeout(timerBackup);
+  const quando = await rpc("estudai_salvar", { p_codigo: contaCodigo(), p_dados: dadosBackup() });
+  estado.conta.ultimoBackup = quando;
+  salvarLocal();
+  return quando;
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden" && timerBackup) fazerBackup().catch(() => {}); });
+
+function abrirRestaurar() {
+  abrirModal(`
+    <div class="topo"><b>Usar em outro celular 🔄</b><button class="fechar" data-fechar>✕</button></div>
+    <p class="pequeno" style="margin-top:0">Digite o código de recuperação que aparece em ⚙️ no celular antigo. Sua agenda, cronograma e materiais vêm para cá.</p>
+    <input type="text" id="rcCodigo" placeholder="XXXX-XXXX-XXXX" autocapitalize="characters" autocomplete="off" style="font-size:20px;letter-spacing:2px;text-align:center">
+    <div style="height:12px"></div>
+    <button class="botao primario" id="rcIr">Recuperar meus dados</button>`);
+  $("#rcCodigo").oninput = (e) => { const v = formatarCodigo(e.target.value); if (v !== e.target.value) e.target.value = v; };
+  $("#rcIr").onclick = async () => {
+    const codigo = formatarCodigo($("#rcCodigo").value);
+    if (codigo.replace(/-/g, "").length < 12) { toast("O código tem 12 letras e números."); return; }
+    $("#rcIr").disabled = true;
+    try {
+      const r = await rpc("estudai_restaurar", { p_codigo: codigo });
+      if (!r || !r.dados) { toast("Não achei esse código. Confira as letras e números.", 3500); $("#rcIr").disabled = false; return; }
+      const temAlgo = estado.tarefas.length || estado.materiais.length;
+      if (temAlgo && !confirm("Os dados deste celular vão ser trocados pelos do código. Continuar?")) { $("#rcIr").disabled = false; return; }
+      const d = r.dados;
+      estado = { tarefas: [], materiais: [], rotina: null, feitosCrono: {}, ...d, conta: { codigo, ultimoBackup: r.atualizado }, boasVindas: true };
+      salvarLocal();
+      toast("Pronto! Seus dados voltaram 🎉", 2500);
+      setTimeout(() => location.reload(), 900);
+    } catch (e) { toast(e.message, 3500); $("#rcIr").disabled = false; }
+  };
+}
+
+/* ---------- turma ---------- */
+function linkTurma(codigo) { return `${location.origin}/?turma=${codigo}`; }
+function compartilharTurma() {
+  const t = estado.turma; if (!t) return;
+  const texto = `Entre na turma ${t.nome} no Estudaí para receber as provas e trabalhos na agenda: ${linkTurma(t.codigo)} (código ${t.codigo})`;
+  if (navigator.share) navigator.share({ title: `Turma ${t.nome} no Estudaí`, text: texto }).catch(() => {});
+  else window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank");
+}
+
+async function sincronizarTurma(avisar = true) {
+  if (!estado.turma || !ONLINE_DE_VERDADE || !navigator.onLine) return 0;
+  let t;
+  try { t = await rpc("estudai_turma_ver", { p_codigo: estado.turma.codigo }); } catch (e) { return 0; }
+  if (!t) return 0;
+  estado.turma.nome = t.nome;
+  const ignoradas = new Set(estado.turmaIgnoradas || []);
+  const jaTem = new Set(estado.tarefas.map((x) => x.origem).filter(Boolean));
+  let novas = 0;
+  for (const x of t.tarefas || []) {
+    if (jaTem.has(x.id) || ignoradas.has(x.id)) continue;
+    estado.tarefas.push({ ...normalizarTarefa(x), id: novoId(), origem: x.id, deTurma: true, feito: false, criado: Date.now() });
+    novas++;
+  }
+  const removidas = new Set(t.removidas || []);
+  const antes = estado.tarefas.length;
+  estado.tarefas = estado.tarefas.filter((x) => !(x.origem && removidas.has(x.origem) && !x.feito));
+  if (novas || antes !== estado.tarefas.length) {
+    salvar();
+    if (!$("#telaAgenda").classList.contains("oculto")) renderAgenda();
+  }
+  if (novas && avisar) toast(`📥 ${novas} ${novas === 1 ? "atividade nova" : "atividades novas"} da turma ${t.nome}`, 3500);
+  return novas;
+}
+
+function abrirEntrarTurma(codigoInicial = "") {
+  abrirModal(`
+    <div class="topo"><b>Entrar na turma 👥</b><button class="fechar" data-fechar>✕</button></div>
+    <p class="pequeno" style="margin-top:0">Peça o código ao professor ou ao representante. As provas e trabalhos que eles publicarem aparecem sozinhos na sua agenda.</p>
+    <input type="text" id="etCodigo" value="${esc(codigoInicial)}" placeholder="Ex.: K7Q2MZ" maxlength="8" autocapitalize="characters" autocomplete="off" style="font-size:22px;letter-spacing:3px;text-align:center">
+    <div style="height:12px"></div>
+    <button class="botao primario" id="etIr">Entrar</button>`);
+  $("#etIr").onclick = async () => {
+    const codigo = $("#etCodigo").value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (codigo.length !== 6) { toast("O código da turma tem 6 letras e números."); return; }
+    $("#etIr").disabled = true;
+    try {
+      const t = await rpc("estudai_turma_ver", { p_codigo: codigo });
+      if (!t) { toast("Não achei essa turma. Confira o código.", 3500); $("#etIr").disabled = false; return; }
+      const segredo = estado.turma && estado.turma.codigo === t.codigo ? estado.turma.segredo : undefined;
+      estado.turma = { codigo: t.codigo, nome: t.nome, ...(segredo ? { segredo } : {}) };
+      estado.boasVindas = true;
+      salvar(); fecharModal();
+      const novas = await sincronizarTurma(false);
+      irPara("agenda");
+      toast(`Você entrou na turma ${t.nome} ✅${novas ? ` · ${novas} ${novas === 1 ? "atividade" : "atividades"} na agenda` : ""}`, 3500);
+    } catch (e) { toast(e.message, 3500); $("#etIr").disabled = false; }
+  };
+}
+
+function abrirCriarTurma() {
+  abrirModal(`
+    <div class="topo"><b>Criar turma 🧑‍🏫</b><button class="fechar" data-fechar>✕</button></div>
+    <p class="pequeno" style="margin-top:0">Para o professor ou o representante. Você tira foto do quadro uma vez e toda a turma recebe as provas e trabalhos.</p>
+    <label class="campo">Nome da turma</label>
+    <input type="text" id="ctNome" maxlength="60" placeholder="Ex.: 8º ano A">
+    <label class="campo">Escola (opcional)</label>
+    <input type="text" id="ctEscola" maxlength="80" placeholder="Ex.: Escola Estadual ...">
+    <div style="height:12px"></div>
+    <button class="botao primario" id="ctIr">Criar e pegar o código</button>`);
+  $("#ctIr").onclick = async () => {
+    const nome = $("#ctNome").value.trim();
+    if (!nome) { toast("Dê um nome para a turma."); return; }
+    $("#ctIr").disabled = true;
+    try {
+      const r = await rpc("estudai_turma_criar", { p_nome: nome, p_escola: $("#ctEscola").value.trim() });
+      estado.turma = { codigo: r.codigo, nome: r.nome, segredo: r.segredo };
+      estado.boasVindas = true;
+      salvar();
+      abrirModal(`
+        <div class="topo"><b>Turma criada! 🎉</b><button class="fechar" data-fechar>✕</button></div>
+        <p>Passe este código para a turma <b>${esc(r.nome)}</b>:</p>
+        <div style="font-size:34px;font-weight:800;letter-spacing:6px;text-align:center;margin:10px 0;color:var(--roxo)">${esc(r.codigo)}</div>
+        <button class="botao primario" id="ctShare">📤 Mandar no grupo da turma</button>
+        <p class="pequeno">Agora, quando você fotografar o quadro e salvar, vai aparecer a opção <b>"Enviar também para a turma"</b>. Só este celular pode publicar (o acesso vai junto no seu código de recuperação).</p>`);
+      $("#ctShare").onclick = compartilharTurma;
+    } catch (e) { toast(e.message, 3500); $("#ctIr").disabled = false; }
+  };
+}
+
+async function publicarNaTurma(tarefas) {
+  const t = estado.turma; if (!t || !t.segredo || !tarefas.length) return false;
+  try {
+    const ids = await rpc("estudai_turma_publicar", { p_codigo: t.codigo, p_segredo: t.segredo, p_tarefas: tarefas.map(({ tipo, materia, titulo, data, detalhes }) => ({ tipo, materia, titulo, data, detalhes })) });
+    tarefas.forEach((x, i) => { if (ids[i]) x.origem = ids[i]; });
+    salvar();
+    toast(`📤 Enviado para a turma ${t.nome}`, 3000);
+    return true;
+  } catch (e) { toast("Não consegui enviar para a turma: " + e.message, 4000); return false; }
+}
+
+/* ---------- avisos no celular (Web Push) ---------- */
+function ehIphone() { return /iphone|ipad|ipod/i.test(navigator.userAgent); }
+function appInstalado() { return (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true; }
+function avisosSuportados() { return ONLINE_DE_VERDADE && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window; }
+function chaveVapid() {
+  const b = atob(VAPID_PUBLICO.replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(b, (c) => c.charCodeAt(0));
+}
+function confAvisos() { estado.avisos = { hora: 19, diario: false, ativo: false, ...(estado.avisos || {}) }; return estado.avisos; }
+
+async function ativarAvisos() {
+  const av = confAvisos();
+  if (!avisosSuportados()) {
+    if (ehIphone() && !appInstalado()) toast("No iPhone: toque em Compartilhar → \"Adicionar à Tela de Início\", abra o Estudaí por lá e ative os avisos.", 6500);
+    else toast("Este navegador não aceita avisos. Tente pelo Chrome ou instale o app na tela inicial.", 4500);
+    return false;
+  }
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") { toast("Sem permissão para avisos. Libere nas configurações do celular.", 4500); return false; }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: chaveVapid() });
+    await fazerBackup();
+    await rpc("estudai_push_salvar", { p_codigo: contaCodigo(), p_sub: sub.toJSON(), p_hora: av.hora, p_diario: av.diario, p_ativo: true });
+    av.ativo = true; av.perguntado = true; salvar();
+    reg.showNotification("Avisos ligados ✅", { body: `Vou te avisar por volta das ${av.hora}h quando tiver prova ou trabalho chegando.`, icon: "/icon-192.png", badge: "/icon-192.png" });
+    return true;
+  } catch (e) { toast("Não consegui ligar os avisos: " + e.message, 4500); return false; }
+}
+async function atualizarAvisos() {
+  const av = confAvisos();
+  if (!av.ativo || !avisosSuportados()) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) { av.ativo = false; salvar(); return; }
+    await rpc("estudai_push_salvar", { p_codigo: contaCodigo(), p_sub: sub.toJSON(), p_hora: av.hora, p_diario: av.diario, p_ativo: true });
+  } catch (e) {}
+}
+async function desativarAvisos() {
+  const av = confAvisos();
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      await rpc("estudai_push_salvar", { p_codigo: contaCodigo(), p_sub: sub.toJSON(), p_hora: av.hora, p_diario: av.diario, p_ativo: false }).catch(() => {});
+      await sub.unsubscribe().catch(() => {});
+    }
+  } catch (e) {}
+  av.ativo = false; salvar();
+}
+function perguntarAvisos() {
+  const av = confAvisos();
+  if (av.ativo || av.perguntado || !ONLINE_DE_VERDADE) return;
+  av.perguntado = true; salvar();
+  abrirModal(`
+    <div class="topo"><b>Quer que eu te avise? 🔔</b><button class="fechar" data-fechar>✕</button></div>
+    <p>Eu mando <b>um aviso por dia, no máximo</b>, só quando tiver prova, trabalho ou dever chegando. Ex.: <i>"Prova de Matemática amanhã — que tal fazer o simulado?"</i></p>
+    ${ehIphone() && !appInstalado() ? `<p class="pequeno">No iPhone, os avisos só funcionam com o app na tela inicial: toque em Compartilhar → "Adicionar à Tela de Início" e abra o Estudaí por lá.</p>` : ""}
+    <button class="botao primario" id="paSim">Sim, me avise</button>
+    <button class="botao fantasma" data-fechar>Agora não</button>`);
+  $("#paSim").onclick = async () => { fecharModal(); if (await ativarAvisos()) toast("Avisos ligados ✅"); };
+}
+
+/* ---------- tela ⚙️ (conta, turma, avisos) ---------- */
+function abrirConta() {
+  const av = confAvisos();
+  const t = estado.turma;
+  const ult = estado.conta && estado.conta.ultimoBackup ? new Date(estado.conta.ultimoBackup).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : null;
+  abrirModal(`
+    <div class="topo"><b>Minha conta ⚙️</b><button class="fechar" data-fechar>✕</button></div>
+
+    <div class="card">
+      <b>🔔 Avisos no celular</b>
+      <p class="pequeno" style="margin:4px 0 8px">No máximo 1 por dia, quando tiver prova, trabalho ou dever chegando.</p>
+      ${av.ativo
+        ? `<div class="linha" style="align-items:center">
+             <div><label class="campo" style="margin-top:0">Horário</label>
+               <select id="avHora">${Array.from({ length: 16 }, (_, i) => i + 6).map((h) => `<option value="${h}" ${h === av.hora ? "selected" : ""}>${h}h</option>`).join("")}</select></div>
+           </div>
+           <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14px"><input type="checkbox" id="avDiario" ${av.diario ? "checked" : ""} style="width:auto"> Lembrete de estudo nos dias sem prova (se tiver cronograma)</label>
+           <div class="acoes"><button class="mini" id="avTeste">Testar aviso</button><button class="mini" id="avDesligar">Desligar avisos</button></div>`
+        : `<button class="botao primario" id="avLigar">🔔 Ligar avisos</button>
+           ${ehIphone() && !appInstalado() ? `<p class="pequeno">No iPhone, primeiro adicione à tela inicial (Compartilhar → "Adicionar à Tela de Início") e abra o app por lá.</p>` : ""}`}
+    </div>
+    <div style="height:10px"></div>
+
+    <div class="card">
+      <b>👥 Minha turma</b>
+      ${t
+        ? `<p style="margin:6px 0">${esc(t.nome)} · código <b>${esc(t.codigo)}</b>${t.segredo ? "<br><span class='pequeno'>Você publica nesta turma.</span>" : ""}</p>
+           <div class="acoes"><button class="mini roxo" id="tuShare">📤 Convidar</button><button class="mini" id="tuSync">🔄 Atualizar</button><button class="mini" id="tuSair">Sair da turma</button></div>`
+        : `<p class="pequeno" style="margin:4px 0 8px">Receba as provas e trabalhos que o professor ou o representante publicar.</p>
+           <div class="acoes"><button class="mini roxo" id="tuEntrar">Entrar com código</button><button class="mini" id="tuCriar">Sou professor / representante</button></div>`}
+    </div>
+    <div style="height:10px"></div>
+
+    <div class="card">
+      <b>🔑 Código de recuperação</b>
+      <p class="pequeno" style="margin:4px 0 8px">Guarde este código. Se trocar de celular ou apagar o app, é com ele que você recupera agenda, cronograma e materiais. Não precisa de e-mail nem senha.</p>
+      ${ONLINE_DE_VERDADE
+        ? `<div style="font-size:24px;font-weight:800;letter-spacing:3px;text-align:center;color:var(--roxo)">${esc(contaCodigo())}</div>
+           <p class="pequeno" style="text-align:center;margin:4px 0">${ult ? `Último backup: ${ult}` : "Backup ainda não feito"}</p>
+           <div class="acoes" style="justify-content:center"><button class="mini roxo" id="cdCopiar">Copiar código</button><button class="mini" id="cdBackup">Fazer backup agora</button></div>`
+        : `<p class="pequeno">Disponível quando o app estiver publicado.</p>`}
+      <button class="link" id="cdRestaurar" style="margin-top:6px">Já uso em outro celular → recuperar meus dados</button>
+    </div>
+    <p class="pequeno" style="text-align:center">Não guardamos nome, e-mail nem fotos. Só o que você salva no app, ligado ao seu código.</p>`);
+
+  const re = () => abrirConta();
+  if ($("#avLigar")) $("#avLigar").onclick = async () => { if (await ativarAvisos()) re(); };
+  if ($("#avHora")) $("#avHora").onchange = async (e) => { av.hora = +e.target.value; salvar(); await atualizarAvisos(); toast(`Avisos às ${av.hora}h ✅`); };
+  if ($("#avDiario")) $("#avDiario").onchange = async (e) => { av.diario = e.target.checked; salvar(); await atualizarAvisos(); };
+  if ($("#avTeste")) $("#avTeste").onclick = async () => {
+    const reg = await navigator.serviceWorker.ready;
+    reg.showNotification("📚 Prova de Matemática amanhã", { body: "Assim chegam os avisos do Estudaí.", icon: "/icon-192.png", badge: "/icon-192.png" });
+  };
+  if ($("#avDesligar")) $("#avDesligar").onclick = async () => { await desativarAvisos(); toast("Avisos desligados"); re(); };
+  if ($("#tuEntrar")) $("#tuEntrar").onclick = () => abrirEntrarTurma();
+  if ($("#tuCriar")) $("#tuCriar").onclick = abrirCriarTurma;
+  if ($("#tuShare")) $("#tuShare").onclick = compartilharTurma;
+  if ($("#tuSync")) $("#tuSync").onclick = async () => { const n = await sincronizarTurma(false); toast(n ? `📥 ${n} ${n === 1 ? "atividade nova" : "atividades novas"}` : "Nada novo na turma"); };
+  if ($("#tuSair")) $("#tuSair").onclick = () => {
+    if (t.segredo && !confirm("Se sair, este celular perde o acesso para publicar nesta turma. Sair mesmo?")) return;
+    if (!t.segredo && !confirm("Sair da turma? As atividades que já estão na agenda continuam.")) return;
+    estado.turma = null; salvar(); re();
+  };
+  if ($("#cdCopiar")) $("#cdCopiar").onclick = () => { navigator.clipboard?.writeText(contaCodigo()).then(() => toast("Código copiado ✅"), () => toast(contaCodigo())); };
+  if ($("#cdBackup")) $("#cdBackup").onclick = async () => { try { await fazerBackup(); toast("Backup feito ✅"); re(); } catch (e) { toast(e.message, 3500); } };
+  $("#cdRestaurar").onclick = abrirRestaurar;
+}
+
+/* ---------- boas-vindas (primeiro uso) ---------- */
+function boasVindas() {
+  if (estado.boasVindas || estado.tarefas.length || estado.materiais.length) return;
+  abrirModal(`
+    <div style="text-align:center;padding:6px 0 2px">
+      <div style="font-size:54px">📚</div>
+      <div style="font-size:24px;font-weight:800;margin-top:4px">Oi! Eu sou o Estudaí</div>
+      <p>Tire uma foto da agenda ou do quadro e eu anoto suas provas e trabalhos com as datas. Leva 30 segundos.</p>
+    </div>
+    <button class="botao primario" id="bvFoto">📷 Tirar foto da agenda</button>
+    <div style="height:8px"></div>
+    <button class="botao secundario" id="bvTurma">👥 Tenho o código da turma</button>
+    <button class="link" id="bvRestaurar" style="display:block;margin:10px auto 0">Já uso em outro celular</button>
+    <button class="link" data-fechar style="display:block;margin:0 auto;color:var(--suave)">Só quero dar uma olhada</button>`);
+  estado.boasVindas = true; salvarLocal();
+  $("#bvFoto").onclick = () => { fecharModal(); $("#arquivoAgenda").click(); };
+  $("#bvTurma").onclick = () => abrirEntrarTurma();
+  $("#bvRestaurar").onclick = abrirRestaurar;
+}
+$("#btnConta").onclick = abrirConta;
 
 /* ---------- uso (estatísticas anônimas, igual ao ResumAI) ---------- */
 // Cada aparelho recebe um código aleatório; não guardamos nome, e-mail, fotos nem textos.
@@ -1854,6 +2201,15 @@ renderAgenda();
 registrarUso("abriu", window.matchMedia && matchMedia("(display-mode: standalone)").matches ? "app instalado" : "navegador");
 reenviarFeedbacks();
 window.addEventListener("online", reenviarFeedbacks);
+(() => {
+  const codigoTurma = new URLSearchParams(location.search).get("turma");
+  if (codigoTurma) { history.replaceState(null, "", "/"); estado.boasVindas = true; abrirEntrarTurma(codigoTurma.toUpperCase().slice(0, 8)); }
+  else boasVindas();
+})();
+sincronizarTurma();
+window.addEventListener("online", () => sincronizarTurma());
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") sincronizarTurma(); });
+if (ONLINE_DE_VERDADE && estado.tarefas.length && !(estado.conta && estado.conta.ultimoBackup)) agendarBackup();
 if ("serviceWorker" in navigator && location.protocol === "https:") {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }

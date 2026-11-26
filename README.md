@@ -67,6 +67,21 @@ Os feedbacks continuam aparecendo também em **Vercel → Logs** (busque por `FE
 
 Se o aluno estiver sem internet, o feedback fica guardado no celular e é enviado depois.
 
+## Conta, turma e avisos (Supabase)
+
+Fica tudo no botão **⚙️** do topo do app.
+
+- **Código de recuperação:** cada celular ganha um código (ex.: `HGHS-A5KY-D74E`), e o app faz backup automático da agenda, cronograma e materiais. Em outro celular, é só digitar o código para recuperar tudo. Não pede e-mail nem senha, o que é melhor para menores (ECA Digital).
+- **Turma:** o professor ou representante toca em "Sou professor / representante" e cria a turma. Recebe um código de 6 letras para mandar no grupo, com link `.../?turma=CODIGO`. Quando ele fotografa o quadro, aparece "Enviar também para a turma", e os alunos que entraram recebem as atividades na agenda ao abrir o app. Se ele excluir uma atividade, ela sai da agenda da turma.
+- **Avisos no celular:** no máximo 1 por dia, no horário que o aluno escolher, e só quando tem prova, trabalho ou apresentação amanhã ou em 3 dias, ou dever para amanhã. Opcional: lembrete de estudo nos outros dias. No iPhone, só funciona com o app adicionado à tela inicial (iOS 16.4 ou mais novo).
+- **Primeiro uso:** tela de boas-vindas com "Tirar foto da agenda", "Tenho o código da turma" e "Já uso em outro celular". Depois que o aluno salva as primeiras atividades, o app pergunta se ele quer ligar os avisos.
+
+Como funciona por trás:
+- `supabase/estudai_v2.sql`: tabelas `estudai_contas`, `estudai_turmas`, `estudai_turma_tarefas`, `estudai_push` e as funções que o app chama. As tabelas não podem ser lidas de fora; o app só usa as funções.
+- `supabase/functions/estudai-lembretes`: função que envia os avisos. Roda de hora em hora pelo `pg_cron` (`supabase/estudai_v2_cron.sql`).
+- As chaves dos avisos ficam na tabela `estudai_config`, que só o servidor lê. Não precisa configurar nada na Vercel.
+- Painel novo: `estudai_contas_resumo` (contas com backup, turmas, atividades de turma e avisos ligados).
+
 ## O que observar no teste com os adolescentes
 
 - Eles conseguem salvar uma prova a partir da foto em menos de 30 segundos?
@@ -76,4 +91,4 @@ Se o aluno estiver sem internet, o feedback fica guardado no celular e é enviad
 
 ## Próximos passos (versão completa)
 
-Login com Google, sincronização no Supabase, notificações de verdade (push), painel dos pais e plano pago via Asaas. Lembre também das regras do ECA Digital (Lei 15.211/2025): nada de anúncios para menores, nada de mecânicas de uso compulsivo, e coletar o mínimo de dados.
+Painel dos pais, plano pago via Asaas e área do professor com várias turmas. Lembre também das regras do ECA Digital (Lei 15.211/2025): nada de anúncios para menores, nada de mecânicas de uso compulsivo, e coletar o mínimo de dados.
