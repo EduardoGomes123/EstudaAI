@@ -91,6 +91,13 @@ Como funciona por trás:
 - **Resultados para o professor (⚙️ → Ver resultados da turma):** número de alunos na turma, quantos usaram nos últimos 7 dias e, para cada material, quantos fizeram o simulado, a média na 1ª tentativa, a média da melhor nota e o acerto por questão (as mais erradas primeiro). Ninguém é identificado: o resultado vai com um código anônimo, e as notas só aparecem com 3 ou mais alunos.
 - Banco: `supabase/estudai_v3.sql` (tabelas `estudai_turma_materiais`, `estudai_turma_membros` e `estudai_turma_resultados`).
 
+## Tela "Hoje" e "% pronto"
+
+- Quem abre o app sem nada anotado vê **"Comece por aqui"**, com 4 caminhos: fotografar a agenda, tirar dúvida, montar o cronograma e entrar na turma.
+- Com provas nos próximos 10 dias, o topo da Agenda mostra **quanto o aluno está pronto** para cada uma (0–100%) e **um botão com o próximo passo**: criar material, ler o resumo, fazer os flashcards, revisar os cartões errados, fazer ou refazer o simulado.
+- O cálculo do "% pronto": material criado (15), resumo lido (15), flashcards sem erro (até 25) e melhor nota no simulado (até 45).
+- Também mostra o bloco de hoje do cronograma que ainda falta.
+
 ## O que observar no teste com os adolescentes
 
 - Eles conseguem salvar uma prova a partir da foto em menos de 30 segundos?

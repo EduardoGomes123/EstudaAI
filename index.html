@@ -165,6 +165,7 @@
       </div>
     </div>
     <div id="resumoDia"></div>
+    <div id="painelHoje"></div>
     <div id="listaTarefas"></div>
   </section>
 
@@ -390,7 +391,11 @@ function abrirModal(html) {
   m.addEventListener("click", (ev) => { if (ev.target === m || ev.target.closest("[data-fechar]")) fecharModal(); });
   document.body.style.overflow = "hidden";
 }
-function fecharModal() { $("#camadaModal").innerHTML = ""; document.body.style.overflow = ""; }
+function fecharModal() {
+  $("#camadaModal").innerHTML = ""; document.body.style.overflow = "";
+  // atualiza o "Hoje" (ex.: depois de estudar, o % de pronto muda)
+  if (!$("#telaAgenda").classList.contains("oculto")) try { renderHoje(); } catch (e) {}
+}
 
 /* ============================================================
    NAVEGAÇÃO
@@ -425,11 +430,12 @@ function renderAgenda() {
   if (amanha.length) aviso += `⏰ Amanhã: ${amanha.map((t) => esc(t.titulo)).join(", ")}. `;
   if (!aviso && provasSemana.length) aviso = `📝 ${provasSemana.length} ${provasSemana.length === 1 ? "prova" : "provas"} nos próximos 7 dias. Bora estudar?`;
   $("#resumoDia").innerHTML = aviso ? `<div class="aviso">${aviso}</div>` : "";
+  renderHoje();
 
   if (!estado.tarefas.length) {
     $("#listaTarefas").innerHTML = `
       <div class="vazio"><div class="em">🗒️</div>
-        <p>Nada anotado ainda.<br>Tire foto do quadro quando o professor passar uma prova ou trabalho.</p>
+        <p>Nada anotado ainda.</p>
         <button class="link" id="btnExemploAgenda">Ver um exemplo</button>
       </div>`;
     $("#btnExemploAgenda").onclick = () => mostrarSugestoes(DEMO_TAREFAS(), true);
@@ -470,6 +476,7 @@ function cardTarefa(t) {
         ${t.materia ? `<span>${esc(t.materia)}</span> ·` : ""}
         <span class="quando ${urg ? "urgente" : ""}">${textoQuando(t.data)}</span>
         ${t.origem ? `<span class="tag" title="Veio da turma ou foi enviada para ela">👥 Turma</span>` : ""}
+        ${t.tipo === "prova" && !t.feito && temMaterial ? (() => { const p = prontidao(t).pct; return `<span class="tag" style="background:transparent;color:${corPronto(p)};border:1px solid currentColor">${p}% pronto</span>`; })() : ""}
       </div>
       ${t.detalhes ? `<div class="det">${esc(t.detalhes)}</div>` : ""}
       ${t.feito ? "" : `<div class="acoes">
@@ -803,6 +810,7 @@ function mostrarAba(m, aba) {
   document.querySelectorAll("[data-aba]").forEach((b) => b.classList.toggle("ativo", b.dataset.aba === aba));
   const c = $("#conteudoAba");
   if (aba === "resumo") {
+    if (!m.resumoVisto && m.resumo.length) { m.resumoVisto = true; salvar(); }
     c.innerHTML = m.resumo.length
       ? `<div class="card"><ol class="resumo">${m.resumo.map((r) => `<li>${esc(r)}</li>`).join("")}</ol></div>
          <div style="height:12px"></div><button class="botao secundario" id="irMapa">${m.banco ? "Resolver as questões →" : "Ver o mapa mental →"}</button>
@@ -1784,6 +1792,7 @@ function rodarFlashcards(m, c, fila) {
     if (pos >= fila.length) {
       const acertos = fila.length - errei.length;
       registrarUso("flashcards_fim", `${acertos}/${fila.length}`);
+      if (!m.cardsFeitos) { m.cardsFeitos = true; salvar(); }
       c.innerHTML = `<div class="card placar"><div class="n">${acertos}/${fila.length}</div>
         <p>${errei.length ? `Você ainda está aprendendo ${errei.length} ${errei.length === 1 ? "cartão" : "cartões"}.` : "Você sabe todos! 🎉"}</p></div>
         <div style="height:12px"></div>
@@ -2005,6 +2014,85 @@ function DEMO_DUVIDA() {
     ],
     aviso: "",
   };
+}
+
+/* ============================================================
+   HOJE — o que fazer agora + quanto o aluno está pronto para cada prova
+   ============================================================ */
+function prontidao(t) {
+  const m = materialDaTarefa(t);
+  if (!m) return { pct: 0, m: null, passo: { rotulo: "📷 Criar material do caderno", fazer: () => novoEstudo(t) } };
+  const nCards = m.flashcards.length, nQuiz = m.quiz.length;
+  let pts = 15;
+  if (m.resumoVisto || !m.resumo.length) pts += 15;
+  if (nCards) pts += m.cardsFeitos ? Math.round(25 * (1 - Math.min(nCards, (m.erros || []).length) / nCards)) : 0;
+  else if (m.resumoVisto) pts += 25;
+  if (nQuiz) pts += Math.round(45 * (m.melhorNota || 0) / 100);
+  else if (m.cardsFeitos) pts += 45;
+  const pct = Math.max(0, Math.min(100, pts));
+  const rev = (m.erros || []).length;
+  let passo;
+  if (!m.resumoVisto && m.resumo.length) passo = { rotulo: "📄 Ler o resumo", fazer: () => abrirMaterial(m.id, "resumo") };
+  else if (nCards && !m.cardsFeitos) passo = { rotulo: "🃏 Fazer os flashcards", fazer: () => abrirMaterial(m.id, "flash") };
+  else if (rev) passo = { rotulo: `🔁 Revisar ${rev} ${rev === 1 ? "cartão errado" : "cartões errados"}`, fazer: () => { abrirMaterial(m.id, "flash"); rodarFlashcards(m, $("#conteudoAba"), [...m.erros]); } };
+  else if (nQuiz && m.melhorNota == null) passo = { rotulo: "✅ Fazer o simulado", fazer: () => abrirMaterial(m.id, "quiz") };
+  else if (nQuiz && m.melhorNota < 80) passo = { rotulo: `✅ Refazer o simulado (melhor: ${m.melhorNota}%)`, fazer: () => abrirMaterial(m.id, "quiz") };
+  else passo = { rotulo: "🏆 Pronto! Um último simulado para garantir", fazer: () => abrirMaterial(m.id, "quiz") };
+  return { pct, m, passo };
+}
+function corPronto(p) { return p >= 80 ? "#087f5b" : p >= 50 ? "#b35c00" : "var(--vermelho)"; }
+
+let acoesHoje = [];
+function renderHoje() {
+  const alvo = $("#painelHoje"); if (!alvo) return;
+  acoesHoje = [];
+  const acao = (fazer) => { acoesHoje.push(fazer); return acoesHoje.length - 1; };
+
+  // 1) ninguém anotou nada ainda: mostrar por onde começar
+  if (!estado.tarefas.length && !estado.materiais.length) {
+    alvo.innerHTML = `
+      <h3>Comece por aqui</h3>
+      <div class="lista">
+        <button class="card" data-hoje="${acao(() => $("#btnFotoAgenda").click())}" style="text-align:left;display:flex;gap:12px;align-items:center;width:100%"><span style="font-size:26px">📷</span><span><b>Fotografar a agenda ou o quadro</b><br><span class="pequeno">Eu anoto as provas e trabalhos com as datas</span></span></button>
+        <button class="card" data-hoje="${acao(() => abrirDuvida())}" style="text-align:left;display:flex;gap:12px;align-items:center;width:100%"><span style="font-size:26px">🙋</span><span><b>Tirar uma dúvida de exercício</b><br><span class="pequeno">Foto do exercício e eu explico passo a passo</span></span></button>
+        <button class="card" data-hoje="${acao(() => { irPara("crono"); if (!estado.rotina) configurarRotina(); })}" style="text-align:left;display:flex;gap:12px;align-items:center;width:100%"><span style="font-size:26px">⏰</span><span><b>Montar meu cronograma</b><br><span class="pequeno">Conto seus horários e eu organizo a semana</span></span></button>
+        ${!estado.turma ? `<button class="card" data-hoje="${acao(() => abrirEntrarTurma())}" style="text-align:left;display:flex;gap:12px;align-items:center;width:100%"><span style="font-size:26px">👥</span><span><b>Entrar na minha turma</b><br><span class="pequeno">Com o código do professor ou do representante</span></span></button>` : ""}
+      </div>`;
+    ligarHoje(); return;
+  }
+
+  // 2) provas dos próximos 10 dias: quanto está pronto e o próximo passo
+  const provas = estado.tarefas
+    .filter((t) => !t.feito && t.tipo === "prova" && t.data && diasAte(t.data) >= 0 && diasAte(t.data) <= 10)
+    .sort((a, b) => a.data.localeCompare(b.data)).slice(0, 2);
+  let html = "";
+  for (const t of provas) {
+    const p = prontidao(t);
+    html += `<div class="card" style="margin-top:10px">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
+        <div><div class="pequeno">${esc(textoQuando(t.data))}</div><b>${iconeMateria(t.materia)} ${esc(t.materia ? `Prova de ${t.materia}` : t.titulo)}</b></div>
+        <div style="text-align:right"><div style="font-size:22px;font-weight:800;color:${corPronto(p.pct)}">${p.pct}%</div><div class="pequeno">pronto</div></div>
+      </div>
+      <div class="progresso" style="margin:8px 0"><div style="width:${p.pct}%;background:${corPronto(p.pct)}"></div></div>
+      <button class="mini roxo" data-hoje="${acao(p.passo.fazer)}">${p.passo.rotulo}</button>
+    </div>`;
+  }
+
+  // 3) bloco de hoje do cronograma que ainda falta
+  if (estado.rotina) {
+    const hoje = montarSemana()[0];
+    const b = hoje && hoje.blocos.find((x) => !estado.feitosCrono[x.chave]);
+    if (b) html += `<div class="card" style="margin-top:10px;display:flex;gap:10px;align-items:center">
+        <div style="flex:1"><div class="pequeno">⏰ Hoje no cronograma · ${b.ini}–${b.fim}</div><b>${iconeMateria(b.materia)} ${esc(b.materia)}</b><div class="pequeno">${esc(b.texto)}</div></div>
+        <button class="mini roxo" data-hoje="${acao(() => irPara("crono"))}">Ver</button></div>`;
+    else if (hoje && hoje.blocos.length) html += `<div class="card pequeno" style="margin-top:10px">✅ Você fez todos os blocos de estudo de hoje. Mandou bem!</div>`;
+  }
+
+  alvo.innerHTML = html ? `<h3>Hoje</h3>${html}` : "";
+  ligarHoje();
+}
+function ligarHoje() {
+  document.querySelectorAll("[data-hoje]").forEach((b) => b.onclick = () => { const f = acoesHoje[+b.dataset.hoje]; if (f) f(); });
 }
 
 /* ============================================================
