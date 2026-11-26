@@ -211,7 +211,7 @@
 const API = "/api/ia";
 const CHAVE = "estudai.v1";
 const TIPOS = { prova: "Prova", trabalho: "Trabalho", dever: "Dever", apresentacao: "Apresentação", outro: "Outro" };
-const MATERIAS = ["Matemática","Português","História","Geografia","Ciências","Biologia","Física","Química","Inglês","Espanhol","Artes","Educação Física","Redação","Filosofia","Sociologia"];
+const MATERIAS = ["Matemática","Português","História","Geografia","Ciências","Biologia","Física","Química","Inglês","Espanhol","Artes","Educação Física","Ensino Religioso","Redação","Filosofia","Sociologia"];
 
 /* ---------- fórmulas: tira LaTeX ($n$, \\frac...) e deixa texto simples (cópia de api/_texto.js) ---------- */
 const SIMBOLOS = {
@@ -288,6 +288,7 @@ function carregar() {
     const d = JSON.parse(localStorage.getItem(CHAVE));
     if (d && d.tarefas && d.materiais) {
       d.feitosCrono = d.feitosCrono || {}; d.rotina = d.rotina || null;
+      if (d.rotina && d.rotina.materias) for (const m of Object.keys(d.rotina.materias)) if (semEstudo(m)) d.rotina.materias[m] = 0;
       d.materiais = d.materiais.map(limparTudo); // corrige materiais antigos com fórmulas em LaTeX
       return d;
     }
@@ -1418,6 +1419,13 @@ const toHora = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String
 const ehHora = (h) => /^\d{1,2}:\d{2}$/.test(h || "");
 function diaDe(iso) { return new Date(iso + "T12:00:00").getDay(); }
 function diasEntre(a, b) { return Math.round((new Date(b + "T12:00:00") - new Date(a + "T12:00:00")) / 86400000); }
+// Matérias que não entram no cronograma de estudos (não precisam estudar em casa)
+function semEstudo(m) {
+  const SEM_ESTUDO = ["educacao fisica", "ed fisica", "edfisica", "ensino religioso", "religiao", "ens religioso"];
+  const n = String(m || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z ]/g, " ").replace(/\s+/g, " ").trim();
+  return n === "ef" || n === "er" || SEM_ESTUDO.some((x) => n === x || n.startsWith(x + " ") || n.replace(/ /g, "") === x.replace(/ /g, ""));
+}
+function dificuldadeInicial(m) { return semEstudo(m) ? 0 : 2; }
 function numDia(iso) { return Math.floor(Date.parse(iso + "T12:00:00Z") / 86400000); }
 
 function rotinaPadrao() {
@@ -1477,7 +1485,7 @@ function horariosDoDia(rot, dow) {
 
 /* o que estudar em cada bloco */
 function listaMaterias(rot) {
-  return Object.entries(rot.materias).filter(([, d]) => d > 0).sort((a, b) => a[0].localeCompare(b[0]));
+  return Object.entries(rot.materias).filter(([m, d]) => d > 0 && !semEstudo(m)).sort((a, b) => a[0].localeCompare(b[0]));
 }
 function tarefasDoDia(rot, iso, n) {
   const dow = diaDe(iso);
@@ -1501,7 +1509,7 @@ function tarefasDoDia(rot, iso, n) {
   // revisar a aula do dia (a matéria mais difícil que teve aula)
   const dia = rot.dias[dow] || {};
   if (dia.aula && dia.materias && dia.materias.length) {
-    const aulas = [...new Set(dia.materias)].filter((m) => !usadas.has(m)).sort((a, b) => (rot.materias[b] || 2) - (rot.materias[a] || 2));
+    const aulas = [...new Set(dia.materias)].filter((m) => !usadas.has(m) && !semEstudo(m) && rot.materias[m] !== 0).sort((a, b) => (rot.materias[b] || 2) - (rot.materias[a] || 2));
     if (aulas[0]) { fila.push({ prio: 70, materia: aulas[0], texto: "Revisar a aula de hoje e refazer exemplos" }); usadas.add(aulas[0]); }
   }
   // rodízio: matérias difíceis aparecem mais vezes
@@ -1669,8 +1677,9 @@ function configurarRotina() {
 
       <div class="card">
         <b>📚 Suas matérias</b>
-        <p class="pequeno" style="margin:4px 0 0">Toque para mudar: fácil → média → difícil → não tenho. As difíceis aparecem mais no cronograma.</p>
+        <p class="pequeno" style="margin:4px 0 0">Toque para mudar: fácil → média → difícil → não estudar. As difíceis aparecem mais no cronograma. Educação Física e Ensino Religioso não entram no cronograma.</p>
         <div class="acoes">${todas.map((m) => {
+          if (semEstudo(m)) return `<button class="mini" style="background:#F1F0F5;color:#999" disabled>${esc(m)} · sem estudo</button>`;
           const d = r.materias[m] || 0;
           const estilo = ["background:#F1F0F5;color:#aaa;text-decoration:line-through", "background:var(--verde-claro);color:#087f5b", "background:var(--azul-claro);color:var(--azul)", "background:var(--vermelho-claro);color:var(--vermelho)"][d];
           return `<button class="mini" style="${estilo}" data-mat-dif="${esc(m)}">${esc(m)}${d ? " · " + ["", "fácil", "média", "difícil"][d] : ""}</button>`;
@@ -1687,7 +1696,7 @@ function configurarRotina() {
       } else d[el.dataset.c] = el.value;
     });
     document.querySelectorAll("[data-dia][data-c=materias]").forEach((el) => el.onchange = () => {
-      for (const m of r.dias[el.dataset.dia].materias) if (!r.materias[m]) r.materias[m] = 2;
+      for (const m of r.dias[el.dataset.dia].materias) if (!(m in r.materias)) r.materias[m] = dificuldadeInicial(m);
       desenhar();
     });
     document.querySelectorAll("[data-aula]").forEach((el) => el.onclick = () => { const d = r.dias[el.dataset.aula]; d.aula = !d.aula; desenhar(); });
@@ -1745,7 +1754,7 @@ function aplicarHorario(r, resp) {
     algum = true;
     const mats = (Array.isArray(v.materias) ? v.materias : []).map(String).map((x) => x.trim()).filter(Boolean).slice(0, 12);
     r.dias[d] = { aula: true, ini: ehHora(v.inicio) ? v.inicio.padStart(5, "0") : r.dias[d].ini, fim: ehHora(v.fim) ? v.fim.padStart(5, "0") : r.dias[d].fim, materias: mats };
-    for (const m of mats) if (!r.materias[m]) r.materias[m] = 2;
+    for (const m of mats) if (!(m in r.materias)) r.materias[m] = dificuldadeInicial(m);
   }
   if (algum) for (let d = 1; d <= 6; d++) if (!Object.keys(dias).some((k) => CHAVE_DIA[String(k).toLowerCase().slice(0, 3).replace("á", "a")] === d)) r.dias[d].aula = false;
   return algum;
