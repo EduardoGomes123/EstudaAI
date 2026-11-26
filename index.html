@@ -2214,12 +2214,20 @@ function abrirFoco(bloco = null) {
 
 /* ---------- 📒 minhas notas ---------- */
 function confNotas() {
-  estado.notas = { media: 6, periodos: 4, materias: {}, ...(estado.notas || {}) };
+  if (!estado.notas || typeof estado.notas !== "object") estado.notas = {};
   const n = estado.notas;
+  const padrao = { media: 6, periodos: 4, nomePer: "", ano: new Date().getFullYear(), serie: "", materias: {}, anteriores: {} };
+  for (const [k, v] of Object.entries(padrao)) if (n[k] == null) n[k] = v;
+  if (!n.anteriores || typeof n.anteriores !== "object") n.anteriores = {};
+  if (!NOMES_PER[n.nomePer]) n.nomePer = n.periodos === 3 ? "trimestre" : "bimestre";
   const base = estado.rotina ? Object.keys(estado.rotina.materias).filter((m) => !semEstudo(m)) : BASE_MATERIAS;
   for (const m of base) if (!n.materias[m]) n.materias[m] = [];
   return n;
 }
+const NOMES_PER = { bimestre: "B", trimestre: "T", unidade: "U", etapa: "E" };
+function anoValido(v) { const x = parseInt(v, 10); const agora = new Date().getFullYear(); return x >= 2000 && x <= agora + 1 ? x : null; }
+function notaIA(v) { const x = parseFloat(String(v ?? "").replace(",", ".")); if (!Number.isFinite(x)) return null; return numNota(x > 10 && x <= 100 ? x / 10 : x); }
+function temNotas(mats) { return Object.values(mats || {}).some((l) => (l || []).some((v) => numNota(v) != null)); }
 function numNota(v) { const x = parseFloat(String(v).replace(",", ".")); return Number.isFinite(x) && x >= 0 && x <= 10 ? x : null; }
 function fmt1(x) { return x.toFixed(1).replace(".", ","); }
 function situacaoNota(lista, media, periodos) {
@@ -2237,14 +2245,24 @@ function situacaoNota(lista, media, periodos) {
 }
 function abrirNotas() {
   const n = confNotas();
-  const rot = n.periodos === 3 ? "T" : "B";
+  const rot = NOMES_PER[n.nomePer];
+  const agora = new Date().getFullYear();
+  const anos = [...new Set([agora + 1, agora, agora - 1, agora - 2, n.ano])].filter(Boolean).sort((a, b) => b - a);
+  const divisoes = [[4, "bimestre", "4 bimestres"], [3, "trimestre", "3 trimestres"], [4, "unidade", "4 unidades"], [3, "unidade", "3 unidades"], [4, "etapa", "4 etapas"], [3, "etapa", "3 etapas"]];
+  const antigos = Object.keys(n.anteriores).sort((a, b) => b - a);
   abrirModal(`
     <div class="topo"><b>Minhas notas 📒</b><button class="fechar" data-fechar>✕</button></div>
     <div class="linha">
-      <div><label class="campo" style="margin-top:0">Média para passar</label>
+      <div><label class="campo" style="margin-top:0">📅 Ano letivo</label>
+        <select id="ntAno">${anos.map((a) => `<option value="${a}" ${a === n.ano ? "selected" : ""}>${a}</option>`).join("")}</select></div>
+      <div><label class="campo" style="margin-top:0">🎒 Série</label>
+        <input id="ntSerie" maxlength="20" value="${esc(n.serie || "")}" placeholder="Ex.: 8º ano"></div>
+    </div>
+    <div class="linha">
+      <div><label class="campo">Média para passar</label>
         <select id="ntMedia">${[5, 6, 7].map((v) => `<option value="${v}" ${v === n.media ? "selected" : ""}>${v},0</option>`).join("")}</select></div>
-      <div><label class="campo" style="margin-top:0">Ano dividido em</label>
-        <select id="ntPer"><option value="4" ${n.periodos === 4 ? "selected" : ""}>4 bimestres</option><option value="3" ${n.periodos === 3 ? "selected" : ""}>3 trimestres</option></select></div>
+      <div><label class="campo">Ano dividido em</label>
+        <select id="ntPer">${divisoes.map(([q, nome, txt]) => `<option value="${q}|${nome}" ${q === n.periodos && nome === n.nomePer ? "selected" : ""}>${txt}</option>`).join("")}</select></div>
     </div>
     <button class="botao secundario" id="ntFoto" style="margin-top:10px">📷 Fotografar o boletim</button>
     <p class="pequeno">Ou digite as notas de 0 a 10. Deixe em branco o que ainda não saiu.</p>
@@ -2259,9 +2277,29 @@ function abrirNotas() {
       </div>`;
     }).join("")}
     <div class="linha" style="margin-top:10px"><input id="ntNova" placeholder="Outra matéria (ex.: Espanhol)" maxlength="30"><button class="mini roxo" id="ntAdd" style="flex:0 0 auto">＋ Adicionar</button></div>
-    <p class="pequeno">A conta usa média simples. Se sua escola usa peso ou recuperação diferente, use como referência.</p>`);
+    <p class="pequeno">A conta usa média simples. Se sua escola usa peso ou recuperação diferente, use como referência.</p>
+    ${antigos.length ? `<b style="display:block;margin-top:14px">📚 Anos anteriores</b>
+      ${antigos.map((a) => { const v = n.anteriores[a]; const ms = Object.keys(v.materias || {}).filter((m) => (v.materias[m] || []).some((x) => numNota(x) != null));
+        return `<div class="card" style="margin-top:8px"><b>${a}${v.serie ? " · " + esc(v.serie) : ""}</b>
+          ${ms.map((m) => { const s = situacaoNota(v.materias[m], v.media || 6, v.periodos || 4); return `<div class="pequeno" style="display:flex;justify-content:space-between;margin-top:4px"><span>${iconeMateria(m)} ${esc(m)}</span><b style="color:${s.cor}">${s.media != null ? fmt1(s.media) : "–"}</b></div>`; }).join("") || `<div class="pequeno">Sem notas.</div>`}
+          <button class="mini" data-apagaano="${a}" style="margin-top:8px">🗑️ Apagar ${a}</button></div>`; }).join("")}` : ""}
+    ${temNotas(n.materias) ? `<button class="botao secundario" id="ntNovoAno" style="margin-top:12px">🆕 Começar novo ano letivo</button>` : ""}`);
   $("#ntMedia").onchange = (e) => { n.media = +e.target.value; salvar(); abrirNotas(); };
-  $("#ntPer").onchange = (e) => { n.periodos = +e.target.value; salvar(); abrirNotas(); };
+  $("#ntPer").onchange = (e) => { const [q, nome] = e.target.value.split("|"); n.periodos = +q; n.nomePer = nome; salvar(); abrirNotas(); };
+  $("#ntSerie").onchange = (e) => { n.serie = e.target.value.trim().slice(0, 20); salvar(); };
+  $("#ntAno").onchange = (e) => {
+    const novo = +e.target.value; if (novo === n.ano) return;
+    trocarAnoNotas(n, novo); salvar(); toast(`📅 Mostrando o ano letivo ${novo}`); abrirNotas();
+  };
+  document.querySelectorAll("[data-apagaano]").forEach((b) => b.onclick = () => {
+    if (!confirm(`Apagar as notas de ${b.dataset.apagaano}?`)) return;
+    delete n.anteriores[b.dataset.apagaano]; salvar(); abrirNotas();
+  });
+  if ($("#ntNovoAno")) $("#ntNovoAno").onclick = () => {
+    const novo = Math.max(n.ano + 1, new Date().getFullYear());
+    if (!confirm(`Guardar as notas de ${n.ano} em "Anos anteriores" e começar ${novo} do zero?`)) return;
+    trocarAnoNotas(n, novo); salvar(); toast(`🆕 Ano letivo ${novo} começou! As notas de antes estão guardadas.`, 4000); abrirNotas();
+  };
   document.querySelectorAll("[data-nota]").forEach((inp) => inp.onchange = () => {
     const [m, i] = inp.dataset.nota.split("|");
     const v = inp.value.trim();
@@ -2280,7 +2318,7 @@ function abrirNotas() {
         parar(); conferirBoletim(r);
       } catch (e) {
         parar();
-        erroIA(e, () => conferirBoletim({ periodos: 4, media: 6, materias: [{ materia: "Matemática", notas: [5.5, 6, null, null] }, { materia: "Português", notas: [8, 7.5, null, null] }, { materia: "História", notas: [9, 8.5, null, null] }] }));
+        erroIA(e, () => conferirBoletim({ ano: new Date().getFullYear(), serie: "8º ano", periodos: 4, nome_periodo: "unidade", media: 6, materias: [{ materia: "Matemática", notas: [5.5, 6, null, null] }, { materia: "Português", notas: [8, 7.5, null, null] }, { materia: "História", notas: [9, 8.5, null, null] }] }));
       }
     };
     inp.click();
@@ -2288,18 +2326,43 @@ function abrirNotas() {
   $("#ntAdd").onclick = () => { const m = $("#ntNova").value.trim(); if (!m) return; if (!n.materias[m]) n.materias[m] = []; salvar(); abrirNotas(); };
 }
 
+// Guarda o ano atual em "anteriores" e abre outro ano (trazendo de volta se já existia)
+function trocarAnoNotas(n, novo) {
+  if (temNotas(n.materias) || n.serie) n.anteriores[n.ano] = { serie: n.serie, media: n.media, periodos: n.periodos, nomePer: n.nomePer, materias: n.materias };
+  const volta = n.anteriores[novo];
+  delete n.anteriores[novo];
+  n.ano = novo;
+  if (volta) Object.assign(n, { serie: volta.serie || "", media: volta.media || n.media, periodos: volta.periodos || n.periodos, nomePer: volta.nomePer || n.nomePer, materias: volta.materias || {} });
+  else { n.serie = ""; n.materias = {}; confNotas(); }
+}
+
 // Mostra o que a IA leu do boletim para o aluno conferir antes de salvar
 function conferirBoletim(r) {
   r = limparTudo(r || {});
   const per = r.periodos === 3 ? 3 : 4;
+  const nomeLido = String(r.nome_periodo || "").toLowerCase();
+  const nomePer = NOMES_PER[nomeLido] ? nomeLido : (per === 3 ? "trimestre" : "bimestre");
   const lidas = (Array.isArray(r.materias) ? r.materias : []).filter((m) => m && m.materia)
-    .map((m) => ({ materia: String(m.materia).slice(0, 30), notas: Array.from({ length: per }, (_, i) => { const v = numNota((m.notas || [])[i]); return v == null ? "" : fmt1(v); }) }))
+    .map((m) => ({ materia: String(m.materia).slice(0, 30), notas: Array.from({ length: per }, (_, i) => { const v = notaIA((m.notas || [])[i]); return v == null ? "" : fmt1(v); }) }))
     .filter((m) => m.notas.some(Boolean)).slice(0, 20);
   if (!lidas.length) { toast(r.aviso || "Não consegui ler o boletim. Tente uma foto reta, de perto e com boa luz.", 4500); return; }
-  const rot = per === 3 ? "T" : "B";
+  const n = confNotas();
+  const anoLido = anoValido(r.ano);
+  const agora = new Date().getFullYear();
+  const anoBol = anoLido || n.ano || agora;
+  const anos = [...new Set([agora + 1, agora, agora - 1, agora - 2, anoBol, n.ano])].filter(Boolean).sort((a, b) => b - a);
+  const rot = NOMES_PER[nomePer];
   abrirModal(`
     <div class="topo"><b>Confira as notas 📒</b><button class="fechar" data-fechar>✕</button></div>
     <p class="pequeno" style="margin-top:0">Foi isso que eu li do boletim. Corrija o que estiver errado antes de salvar.</p>
+    <div class="linha">
+      <div><label class="campo" style="margin-top:0">📅 Ano letivo</label>
+        <select id="bolAno">${anos.map((a) => `<option value="${a}" ${a === anoBol ? "selected" : ""}>${a}</option>`).join("")}</select></div>
+      <div><label class="campo" style="margin-top:0">🎒 Série</label>
+        <input id="bolSerie" maxlength="20" value="${esc(String(r.serie || (anoBol === n.ano ? n.serie : "") || "").slice(0, 20))}" placeholder="Ex.: 8º ano"></div>
+    </div>
+    ${anoLido ? "" : `<p class="pequeno" style="color:#b35c00">⚠️ Não achei o ano no boletim. Confira se ${anoBol} está certo.</p>`}
+    <p class="pequeno">Dividido em ${per} ${nomePer}s.</p>
     ${lidas.map((m, k) => `<div class="card" style="margin-top:8px"><b>${iconeMateria(m.materia)} ${esc(m.materia)}</b>
       <div style="display:grid;grid-template-columns:repeat(${per},1fr);gap:6px;margin-top:6px">
         ${m.notas.map((v, i) => `<input inputmode="decimal" placeholder="${rot}${i + 1}" data-bol="${k}|${i}" value="${esc(v)}" style="text-align:center;padding:8px;min-width:0;width:100%;box-sizing:border-box">`).join("")}
@@ -2308,11 +2371,26 @@ function conferirBoletim(r) {
     <button class="botao primario" id="bolSalvar">Salvar notas</button>`);
   $("#bolSalvar").onclick = () => {
     document.querySelectorAll("[data-bol]").forEach((inp) => { const [k, i] = inp.dataset.bol.split("|").map(Number); const v = numNota(inp.value.trim()); lidas[k].notas[i] = v == null ? "" : fmt1(v); });
-    const n = confNotas();
-    n.periodos = per;
+    const ano = +$("#bolAno").value;
+    const serie = $("#bolSerie").value.trim().slice(0, 20);
+    let msg = "";
+    if (ano !== n.ano) {
+      if (ano < n.ano && temNotas(n.materias)) {
+        // boletim de um ano que já passou: guarda em "Anos anteriores" sem mexer no ano atual
+        const antes = n.anteriores[ano] || { materias: {} };
+        const mats = { ...(antes.materias || {}) };
+        for (const m of lidas) mats[m.materia] = m.notas;
+        n.anteriores[ano] = { serie: serie || antes.serie || "", media: [5, 6, 7].includes(Math.round(Number(r.media))) ? Math.round(Number(r.media)) : (antes.media || n.media), periodos: per, nomePer, materias: mats };
+        salvar(); toast(`📚 Notas de ${ano} guardadas em "Anos anteriores"`, 4000); abrirNotas(); return;
+      }
+      trocarAnoNotas(n, ano);
+      msg = ` · ano letivo ${ano}`;
+    }
+    n.periodos = per; n.nomePer = nomePer;
+    if (serie) n.serie = serie;
     if ([5, 6, 7].includes(Math.round(Number(r.media)))) n.media = Math.round(Number(r.media));
     for (const m of lidas) n.materias[m.materia] = m.notas;
-    salvar(); toast(`📒 Notas de ${lidas.length} ${lidas.length === 1 ? "matéria salvas" : "matérias salvas"}`); abrirNotas();
+    salvar(); toast(`📒 Notas de ${lidas.length} ${lidas.length === 1 ? "matéria salvas" : "matérias salvas"}${msg}`); abrirNotas();
   };
 }
 

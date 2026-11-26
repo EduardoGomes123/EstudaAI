@@ -82,20 +82,32 @@ Responda SOMENTE com JSON neste formato:
 }
 
 function promptBoletim() {
+  const ano = new Date().getFullYear();
   return `Você lê a foto do boletim escolar de um estudante brasileiro (ensino fundamental ou médio).
 
-Extraia, para cada disciplina, as notas de cada período (bimestre ou trimestre), na ordem: 1º, 2º, 3º, 4º.
-Regras:
-- Notas na escala de 0 a 10. Se o boletim usa 0 a 100, divida por 10. Se usa conceitos (A, B, C...), deixe null.
-- Período sem nota ainda: null. Não invente notas.
-- Ignore faltas, frequência, média final, recuperação e resultado.
-- "periodos": 4 se for bimestral, 3 se for trimestral.
-- "media": a média mínima para aprovação, se estiver escrita no boletim; senão null.
-- Use nomes padronizados: Matemática, Português, Redação, Ciências, Física, Química, Biologia, História, Geografia, Inglês, Espanhol, Artes, Educação Física, Filosofia, Sociologia, Ensino Religioso.
-- Se a imagem não for um boletim ou estiver ilegível, responda {"materias":[],"aviso":"explicação curta"}.
+PASSO 1 — Cabeçalho do boletim:
+- "ano": o ANO LETIVO escrito no boletim (ex.: "Ano letivo: ${ano}", "Ano: ${ano}", "Exercício ${ano}", "${ano}" no título). Número com 4 dígitos. Se não estiver escrito, null.
+- "serie": a série/ano escolar (ex.: "8º ano", "1ª série EM", "9º ano B"). Se não estiver escrito, null.
+- NÃO copie nome do aluno, matrícula, CPF, endereço ou nome dos pais.
+
+PASSO 2 — Colunas de períodos. O ano pode estar dividido em:
+- bimestres (1º Bim, 2º Bim, B1, B2...), trimestres (1º Tri, T1...), UNIDADES (I Unidade, II Unidade, III Unidade, IV Unidade, 1ª Unid., U1...), etapas, ciclos, períodos, avaliações (AV1, AV2...).
+- Conte quantas colunas de período existem: "periodos" = 4 (quatro bimestres/unidades/etapas) ou 3 (três trimestres/unidades/etapas).
+- "nome_periodo": como o boletim chama ("bimestre", "trimestre", "unidade" ou "etapa").
+
+PASSO 3 — Notas de cada disciplina, na ordem dos períodos (1º, 2º, 3º, 4º):
+- Leia o boletim do ano todo: todas as colunas de período, não só a primeira.
+- Se cada período tem subcolunas (nota, faltas, recuperação), pegue a NOTA do período. Se houver recuperação do período com nota maior, use a maior.
+- Escala de 0 a 10. Se o boletim usa 0 a 100, divida por 10. Vírgula vira ponto (7,5 → 7.5). Conceitos (A, B, C...) → null.
+- Período sem nota ainda (vazio, traço, "--"): null. Nunca invente notas.
+- Ignore faltas, frequência, média anual, média final, recuperação final, conselho de classe e resultado.
+- "media": a média mínima para aprovação, se estiver escrita (ex.: "média 6,0"); senão null.
+- Use nomes padronizados: Matemática, Português, Redação, Ciências, Física, Química, Biologia, História, Geografia, Inglês, Espanhol, Artes, Educação Física, Filosofia, Sociologia, Ensino Religioso. "Língua Portuguesa" = Português; "Língua Inglesa" = Inglês; "Arte" = Artes.
+
+Se a imagem não for um boletim ou estiver ilegível, responda {"materias":[],"aviso":"explicação curta"}.
 
 Responda SOMENTE com JSON neste formato:
-{"periodos":4,"media":null,"materias":[{"materia":"Matemática","notas":[7.5,8,null,null]}],"aviso":""}`;
+{"ano":${ano},"serie":"8º ano","periodos":4,"nome_periodo":"unidade","media":null,"materias":[{"materia":"Matemática","notas":[7.5,8,null,null]}],"aviso":""}`;
 }
 
 function promptRedacao({ tema, tipo, texto }) {
