@@ -55,14 +55,11 @@ A tabela `estudai_feedback` tem cada opinião completa (carinha, assunto, texto,
 
 **Privacidade (ECA Digital):** o uso é anônimo. Cada aparelho recebe um código aleatório, e não guardamos nome, e-mail, fotos nem textos do caderno. Os comentários com palavrão, link, telefone ou e-mail são recusados.
 
-### Como ligar (uma vez só)
+### Já está ligado
 
-1. **Supabase:** abra o projeto do ResumAI (ou crie um novo) → **SQL Editor → New query**, cole todo o arquivo `supabase/estudai.sql` e clique em **Run**. As tabelas têm o prefixo `estudai_` e não misturam com o ResumAI.
-2. Em **Project Settings → API**, copie o **Project URL** e a chave **service_role** (é secreta: nunca coloque no `index.html`).
-3. **Vercel → projeto → Settings → Environment Variables**, crie:
-   - `SUPABASE_URL` = o Project URL
-   - `SUPABASE_SERVICE_ROLE_KEY` = a chave service_role
-4. **Deployments → ⋯ → Redeploy.**
+O app grava no projeto **EstudAÍ** do Supabase usando a chave pública, que só tem permissão para **adicionar** linhas nessas duas tabelas (ninguém de fora lê, muda ou apaga). Não precisa configurar nada na Vercel.
+
+Se um dia quiser trocar de projeto, crie na Vercel as variáveis `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY`, rode `supabase/estudai.sql` no projeto novo e faça um Redeploy.
 
 Para testar: abra o site, use alguma função e mande uma opinião. Em seguida, confira `estudai_numeros` e `estudai_feedback` no Supabase. Se nada aparecer, procure `SUPABASE_ERRO` em **Vercel → Logs**.
 
